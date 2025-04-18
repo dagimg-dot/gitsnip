@@ -29,3 +29,7 @@ run-binary:
 clean:
 	@echo "Cleaning..."
 	rm -rf $(BINARY_PATH)
+
+lint:
+	@echo "Linting..."
+	go fmt ./...
