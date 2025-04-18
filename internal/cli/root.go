@@ -1,14 +1,19 @@
 package cli
 
 import (
-	"fmt"
-	"github.com/spf13/cobra"
 	"path/filepath"
+	"strings"
+
+	"github.com/dagimg-dot/gitsnip/internal/app"
+	"github.com/dagimg-dot/gitsnip/internal/app/model"
+	"github.com/spf13/cobra"
 )
 
 var (
-	branch string
-	method string
+	branch   string
+	method   string
+	token    string
+	provider string
 
 	rootCmd = &cobra.Command{
 		Use:   "gitsnip <repository_url> <folder_path> [output_dir]",
@@ -34,13 +39,33 @@ Arguments:
 				outputDir = filepath.Base(folderPath)
 			}
 
-			fmt.Printf("Repository URL: %s\n", repoURL)
-			fmt.Printf("Folder Path:    %s\n", folderPath)
-			fmt.Printf("Target Branch:  %s\n", branch)
-			fmt.Printf("Download Method: %s\n", method)
-			fmt.Printf("Output Dir:     %s\n", outputDir)
+			if provider == "" {
+				if strings.Contains(repoURL, "github.com") {
+					provider = "github"
+				} else {
+					provider = "github"
+				}
+			}
 
-			return nil
+			methodType := model.MethodTypeSparse
+			if method == "api" {
+				methodType = model.MethodTypeAPI
+			}
+
+			providerType := model.ProviderTypeGitHub
+			// TODO: add other providers when supported
+
+			opts := model.DownloadOptions{
+				RepoURL:   repoURL,
+				Subdir:    folderPath,
+				OutputDir: outputDir,
+				Branch:    branch,
+				Token:     token,
+				Method:    methodType,
+				Provider:  providerType,
+			}
+
+			return app.Download(opts)
 		},
 	}
 )
@@ -56,4 +81,6 @@ func init() {
 	// TODO: use PersistentFlags if i want flags to be available to subcommands as well
 	rootCmd.Flags().StringVarP(&branch, "branch", "b", "main", "Repository branch to download from")
 	rootCmd.Flags().StringVarP(&method, "method", "m", "sparse", "Download method ('api' or 'sparse')")
+	rootCmd.Flags().StringVarP(&token, "token", "t", "", "GitHub API token for private repositories or increased rate limits")
+	rootCmd.Flags().StringVarP(&provider, "provider", "p", "", "Repository provider ('github', more to come)")
 }
