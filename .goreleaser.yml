@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+
 version: 2
 project_name: gitsnip
 
@@ -6,7 +8,8 @@ before:
     - go mod tidy
 
 builds:
-  - env:
+  - id: gitsnip
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
@@ -21,7 +24,12 @@ builds:
     binary: gitsnip
 
 archives:
-  - format: tar.gz
+  - id: gitsnip
+    ids: [gitsnip]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -29,28 +37,21 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    format_overrides:
-      - goos: windows
-        format: zip
 
 changelog:
   sort: asc
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
       - Merge pull request
       - Merge branch
 
-brews:
-  - name: gitsnip
-    homepage: "https://github.com/dagimg-dot/gitsnip"
-    description: "A tool to download specific directories from Git repositories"
-    license: "MIT"
-    commit_author:
-      name: goreleaserbot
-      email: goreleaser@carlosbecker.com
-
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: dagimg-dot
+    name: gitsnip
