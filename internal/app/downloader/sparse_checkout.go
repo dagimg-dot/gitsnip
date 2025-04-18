@@ -95,18 +95,25 @@ func (s *sparseCheckoutDownloader) Download() error {
 }
 
 func (s *sparseCheckoutDownloader) getAuthenticatedRepoURL() string {
-	if s.opts.Token == "" {
-		return s.opts.RepoURL
+	repoURL := s.opts.RepoURL
+
+	// If URL starts with "github.com/", prefix it with "https://"
+	if strings.HasPrefix(repoURL, "github.com/") {
+		repoURL = "https://" + repoURL
 	}
 
-	if strings.HasPrefix(s.opts.RepoURL, "https://") {
-		parts := strings.SplitN(s.opts.RepoURL[8:], "/", 2)
+	if s.opts.Token == "" {
+		return repoURL
+	}
+
+	if strings.HasPrefix(repoURL, "https://") {
+		parts := strings.SplitN(repoURL[8:], "/", 2)
 		if len(parts) == 2 {
 			return fmt.Sprintf("https://%s@%s/%s", s.opts.Token, parts[0], parts[1])
 		}
 	}
 
-	return s.opts.RepoURL
+	return repoURL
 }
 
 func (s *sparseCheckoutDownloader) initRepo(ctx context.Context, dir, repoURL string) error {
