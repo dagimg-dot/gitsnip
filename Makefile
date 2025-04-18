@@ -45,12 +45,13 @@ clean:
 lint:
 	@echo "Linting..."
 	go fmt ./...
-	
-release: 
+
+release:
+	@echo "Bumping version..."
+	git tag v$(VERSION)
+	git push origin v$(VERSION)
+
+local-release: 
 	@echo "Creating release for $(VERSION)..."
 	@mkdir -p dist
 	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o dist/$(BINARY_NAME)_linux_$(VERSION)_$(shell go env GOARCH) $(CMD_PATH)
-	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o dist/$(BINARY_NAME)_darwin_$(VERSION)_$(shell go env GOARCH) $(CMD_PATH)
-	GOOS=windows GOARCH=amd64 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o dist/$(BINARY_NAME)_windows_$(VERSION)_$(shell go env GOARCH).exe $(CMD_PATH)
-
-ci: lint build
