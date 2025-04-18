@@ -1,13 +1,12 @@
 package main
 
 import (
-	"flag"
-	"fmt"
+	"github.com/dagimg-dot/gitsnip/internal/cli"
+	"os"
 )
 
 func main() {
-	name := flag.String("name", "World", "a name to say hello to")
-	flag.Parse()
-
-	fmt.Printf("Hello, %s!\n", *name)
+	if err := cli.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
