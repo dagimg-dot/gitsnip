@@ -1,0 +1,26 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, build targets
+*.test
+*.out
+bin/
+pkg/
+
+# Output of the go coverage tool, PID files
+*.cover
+*.pid
+
+# Dependency directories (Go 1.11+ uses modules)
+vendor/
+
+# IDE/Editor files
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
