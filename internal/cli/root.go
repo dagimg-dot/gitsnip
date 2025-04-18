@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/dagimg-dot/gitsnip/internal/app"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
+	apperrors "github.com/dagimg-dot/gitsnip/internal/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -14,6 +17,7 @@ var (
 	method   string
 	token    string
 	provider string
+	quiet    bool
 
 	rootCmd = &cobra.Command{
 		Use:   "gitsnip <repository_url> <folder_path> [output_dir]",
@@ -63,9 +67,27 @@ Arguments:
 				Token:     token,
 				Method:    methodType,
 				Provider:  providerType,
+				Quiet:     quiet,
 			}
 
-			return app.Download(opts)
+			if !quiet {
+				fmt.Printf("Repository URL: %s\n", repoURL)
+				fmt.Printf("Folder Path:    %s\n", folderPath)
+				fmt.Printf("Target Branch:  %s\n", branch)
+				fmt.Printf("Download Method: %s\n", method)
+				fmt.Printf("Output Dir:     %s\n", outputDir)
+				fmt.Printf("Provider:       %s\n", provider)
+				fmt.Println("--------------------------------")
+			}
+
+			err := app.Download(opts)
+
+			var appErr *apperrors.AppError
+			if errors.As(err, &appErr) {
+				cmd.SilenceUsage = true
+			}
+
+			return err
 		},
 	}
 )
@@ -73,6 +95,7 @@ Arguments:
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main().
 func Execute() error {
+	rootCmd.SilenceErrors = true
 	return rootCmd.Execute()
 }
 
@@ -83,4 +106,5 @@ func init() {
 	rootCmd.Flags().StringVarP(&method, "method", "m", "sparse", "Download method ('api' or 'sparse')")
 	rootCmd.Flags().StringVarP(&token, "token", "t", "", "GitHub API token for private repositories or increased rate limits")
 	rootCmd.Flags().StringVarP(&provider, "provider", "p", "", "Repository provider ('github', more to come)")
+	rootCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress output during download")
 }

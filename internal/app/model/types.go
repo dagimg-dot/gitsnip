@@ -21,4 +21,5 @@ type DownloadOptions struct {
 	Token     string
 	Method    MethodType
 	Provider  ProviderType
+	Quiet     bool
 }

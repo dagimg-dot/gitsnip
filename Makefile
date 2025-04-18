@@ -45,16 +45,7 @@ clean:
 lint:
 	@echo "Linting..."
 	go fmt ./...
-	golangci-lint run ./...
-
-lint-fix:
-	@echo "Fixing lint issues..."
-	golangci-lint run --fix ./...
-
-setup-hooks:
-	@echo "Installing pre-commit hooks..."
-	pre-commit install
-
+	
 release: 
 	@echo "Creating release for $(VERSION)..."
 	@mkdir -p dist

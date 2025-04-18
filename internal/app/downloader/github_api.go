@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
+	"github.com/dagimg-dot/gitsnip/internal/errors"
 	"github.com/dagimg-dot/gitsnip/internal/util"
 )
 
@@ -41,15 +42,21 @@ type gitHubAPIDownloader struct {
 func (g *gitHubAPIDownloader) Download() error {
 	owner, repo, err := parseGitHubURL(g.opts.RepoURL)
 	if err != nil {
-		return fmt.Errorf("invalid GitHub URL: %w", err)
+		return &errors.AppError{
+			Err:     errors.ErrInvalidURL,
+			Message: "Invalid GitHub URL format",
+			Hint:    "URL should be in the format: https://github.com/owner/repo",
+		}
 	}
 
 	if err := util.EnsureDir(g.opts.OutputDir); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	fmt.Printf("Downloading directory %s from %s/%s (branch: %s)...\n",
-		g.opts.Subdir, owner, repo, g.opts.Branch)
+	if !g.opts.Quiet {
+		fmt.Printf("Downloading directory %s from %s/%s (branch: %s)...\n",
+			g.opts.Subdir, owner, repo, g.opts.Branch)
+	}
 
 	return g.downloadDirectory(owner, repo, g.opts.Subdir, g.opts.OutputDir)
 }
@@ -88,7 +95,9 @@ func (g *gitHubAPIDownloader) downloadDirectory(owner, repo, path, outputDir str
 				return err
 			}
 		} else if item.Type == "file" {
-			fmt.Printf("Downloading %s\n", item.Path)
+			if !g.opts.Quiet {
+				fmt.Printf("Downloading %s\n", item.Path)
+			}
 			if err := g.downloadFile(item.DownloadURL, targetPath); err != nil {
 				return fmt.Errorf("failed to download file %s: %w", item.Path, err)
 			}
@@ -113,13 +122,18 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubCon
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, &errors.AppError{
+			Err:     errors.ErrNetworkFailure,
+			Message: "Failed to connect to GitHub API",
+			Hint:    "Check your internet connection and try again",
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitHub API error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		bodyStr := strings.TrimSpace(string(body))
+		return nil, errors.ParseGitHubAPIError(resp.StatusCode, bodyStr)
 	}
 
 	var items []GitHubContentItem
@@ -146,12 +160,18 @@ func (g *gitHubAPIDownloader) downloadFile(url, outputPath string) error {
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to download file: %w", err)
+		return &errors.AppError{
+			Err:     errors.ErrNetworkFailure,
+			Message: "Failed to download file",
+			Hint:    "Check your internet connection and try again",
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download file: %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		bodyStr := strings.TrimSpace(string(body))
+		return errors.ParseGitHubAPIError(resp.StatusCode, bodyStr)
 	}
 
 	return util.SaveToFile(outputPath, resp.Body)
