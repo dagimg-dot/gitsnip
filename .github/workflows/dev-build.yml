@@ -1,0 +1,142 @@
+name: Development Build
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '>=1.21.0'
+          check-latest: true
+          
+      - name: Install dependencies
+        run: go mod download
+        
+      - name: Run tests
+        run: go test -v ./...
+        
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '>=1.21.0'
+          check-latest: true
+          
+      - name: Set dev version
+        id: version
+        run: |
+          GIT_SHA=$(git rev-parse --short HEAD)
+          BRANCH=${GITHUB_REF##*/}
+          echo "VERSION=dev-${BRANCH}-${GIT_SHA}" >> $GITHUB_OUTPUT
+          echo "Building version: dev-${BRANCH}-${GIT_SHA}"
+          
+      - name: Build
+        run: |
+          make VERSION=${{ steps.version.outputs.VERSION }} build
+          
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: gitsnip-dev-build
+          path: bin/gitsnip
+          
+  # Only run this job if on the main branch, not for PRs
+  dev-release:
+    name: Create Dev Release
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '>=1.21.0'
+          check-latest: true
+          
+      - name: Download binary
+        uses: actions/download-artifact@v3
+        with:
+          name: gitsnip-dev-build
+          path: ./bin
+          
+      - name: Set executable permission
+        run: chmod +x ./bin/gitsnip
+          
+      - name: Set dev version
+        id: version
+        run: |
+          GIT_SHA=$(git rev-parse --short HEAD)
+          BRANCH=${GITHUB_REF##*/}
+          echo "VERSION=dev-${BRANCH}-${GIT_SHA}" >> $GITHUB_OUTPUT
+          echo "RELEASE_NAME=Development build: ${BRANCH}-${GIT_SHA}" >> $GITHUB_OUTPUT
+          echo "Building version: dev-${BRANCH}-${GIT_SHA}"
+          
+      - name: Create dev build
+        run: |
+          mkdir -p ./dist
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X github.com/dagimg-dot/gitsnip/internal/cli.version=${{ steps.version.outputs.VERSION }} -X github.com/dagimg-dot/gitsnip/internal/cli.commit=$(git rev-parse --short HEAD) -X github.com/dagimg-dot/gitsnip/internal/cli.buildDate=$(date -u +"%Y-%m-%dT%H:%M:%SZ") -X github.com/dagimg-dot/gitsnip/internal/cli.builtBy=github-action" -o ./dist/gitsnip_linux_amd64 ./cmd/gitsnip
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X github.com/dagimg-dot/gitsnip/internal/cli.version=${{ steps.version.outputs.VERSION }} -X github.com/dagimg-dot/gitsnip/internal/cli.commit=$(git rev-parse --short HEAD) -X github.com/dagimg-dot/gitsnip/internal/cli.buildDate=$(date -u +"%Y-%m-%dT%H:%M:%SZ") -X github.com/dagimg-dot/gitsnip/internal/cli.builtBy=github-action" -o ./dist/gitsnip_darwin_amd64 ./cmd/gitsnip
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X github.com/dagimg-dot/gitsnip/internal/cli.version=${{ steps.version.outputs.VERSION }} -X github.com/dagimg-dot/gitsnip/internal/cli.commit=$(git rev-parse --short HEAD) -X github.com/dagimg-dot/gitsnip/internal/cli.buildDate=$(date -u +"%Y-%m-%dT%H:%M:%SZ") -X github.com/dagimg-dot/gitsnip/internal/cli.builtBy=github-action" -o ./dist/gitsnip_windows_amd64.exe ./cmd/gitsnip
+          
+      - name: Delete previous dev release
+        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        with:
+          tag_name: dev-latest
+          delete_release: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: dev-latest
+          name: ${{ steps.version.outputs.RELEASE_NAME }}
+          body: |
+            Development build from ${{ github.sha }}
+            Branch: ${GITHUB_REF##*/}
+            
+            This is an automated development build and may contain bugs.
+            For stable releases, please use the versioned releases.
+          files: |
+            ./dist/gitsnip_linux_amd64
+            ./dist/gitsnip_darwin_amd64
+            ./dist/gitsnip_windows_amd64.exe
+          prerelease: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

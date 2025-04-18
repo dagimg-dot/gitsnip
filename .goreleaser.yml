@@ -1,3 +1,4 @@
+version: 2
 project_name: gitsnip
 
 before:
@@ -47,9 +48,9 @@ brews:
     homepage: "https://github.com/dagimg-dot/gitsnip"
     description: "A tool to download specific directories from Git repositories"
     license: "MIT"
-    tap:
-      owner: dagimg-dot
-      name: homebrew-tap
     commit_author:
       name: goreleaserbot
       email: goreleaser@carlosbecker.com
+
+checksum:
+  name_template: 'checksums.txt'
