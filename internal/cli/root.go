@@ -31,8 +31,23 @@ Arguments:
   output_dir:     Optional. Directory where the folder should be saved.
                   Defaults to the folder's base name in the current directory.`,
 
-		Args: cobra.RangeArgs(2, 3),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				cmd.Help()
+				return nil
+			}
+			return nil
+		},
+		Args: cobra.RangeArgs(0, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return nil
+			}
+
+			if len(args) < 2 {
+				return fmt.Errorf("requires at least repository_url and folder_path arguments")
+			}
+
 			repoURL := args[0]
 			folderPath := args[1]
 			outputDir := "" // default
@@ -96,6 +111,7 @@ Arguments:
 // This is called by main.main().
 func Execute() error {
 	rootCmd.SilenceErrors = true
+	rootCmd.SilenceUsage = false
 	return rootCmd.Execute()
 }
 
