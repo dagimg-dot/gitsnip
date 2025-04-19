@@ -56,9 +56,6 @@ func (s *sparseCheckoutDownloader) Download() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	if !s.opts.Quiet {
-		fmt.Println("Setting up Git repository...")
-	}
 	if err := s.initRepo(ctx, tempDir, repoURL); err != nil {
 		return err
 	}
@@ -97,7 +94,6 @@ func (s *sparseCheckoutDownloader) Download() error {
 func (s *sparseCheckoutDownloader) getAuthenticatedRepoURL() string {
 	repoURL := s.opts.RepoURL
 
-	// If URL starts with "github.com/", prefix it with "https://"
 	if strings.HasPrefix(repoURL, "github.com/") {
 		repoURL = "https://" + repoURL
 	}
@@ -129,56 +125,32 @@ func (s *sparseCheckoutDownloader) initRepo(ctx context.Context, dir, repoURL st
 }
 
 func (s *sparseCheckoutDownloader) setupSparseCheckout(ctx context.Context, dir string) error {
-	if _, err := gitutil.RunGitCommand(ctx, dir, "config", "core.sparseCheckout", "true"); err != nil {
+	if _, err := gitutil.RunGitCommand(ctx, dir, "sparse-checkout", "init", "--cone"); err != nil {
 		return errors.ParseGitError(err, "failed to enable sparse checkout")
 	}
 
-	err := s.setupModernSparseCheckout(ctx, dir)
-	if err != nil {
-		return s.setupLegacySparseCheckout(ctx, dir)
-	}
-
-	return nil
-}
-
-func (s *sparseCheckoutDownloader) setupModernSparseCheckout(ctx context.Context, dir string) error {
-	_, err := gitutil.RunGitCommand(ctx, dir, "sparse-checkout", "set", s.opts.Subdir)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *sparseCheckoutDownloader) setupLegacySparseCheckout(_ context.Context, dir string) error {
-	sparseCheckoutPath := filepath.Join(dir, ".git", "info", "sparse-checkout")
-	sparseCheckoutDir := filepath.Dir(sparseCheckoutPath)
-
-	if err := os.MkdirAll(sparseCheckoutDir, 0755); err != nil {
-		return fmt.Errorf("failed to create sparse checkout directory: %w", err)
-	}
-
-	sparseCheckoutPattern := fmt.Sprintf("%s/**", s.opts.Subdir)
-	if err := os.WriteFile(sparseCheckoutPath, []byte(sparseCheckoutPattern), 0644); err != nil {
-		return fmt.Errorf("failed to write sparse checkout file: %w", err)
+	if _, err := gitutil.RunGitCommand(ctx, dir, "sparse-checkout", "set", s.opts.Subdir); err != nil {
+		return errors.ParseGitError(err, "failed to set sparse checkout pattern")
 	}
 
 	return nil
 }
 
 func (s *sparseCheckoutDownloader) pullContent(ctx context.Context, dir string) error {
-	args := []string{"pull", "--depth=1", "origin"}
-
-	if s.opts.Branch != "" {
-		args = append(args, s.opts.Branch)
-	}
-
 	if !s.opts.Quiet {
 		fmt.Println("Downloading content from repository...")
 	}
 
-	_, err := gitutil.RunGitCommand(ctx, dir, args...)
-	if err != nil {
-		return errors.ParseGitError(err, "failed to pull content")
+	fetchArgs := []string{"fetch", "--depth=1", "--no-tags", "origin"}
+	if s.opts.Branch != "" {
+		fetchArgs = append(fetchArgs, s.opts.Branch)
+	}
+	if _, err := gitutil.RunGitCommand(ctx, dir, fetchArgs...); err != nil {
+		return errors.ParseGitError(err, "failed to fetch content")
+	}
+
+	if _, err := gitutil.RunGitCommand(ctx, dir, "checkout", "FETCH_HEAD"); err != nil {
+		return errors.ParseGitError(err, "failed to checkout content")
 	}
 
 	return nil
