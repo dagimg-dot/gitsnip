@@ -24,6 +24,12 @@
 eget dagimg-dot/gitsnip
 ```
 
+### Using Go
+
+```bash
+go install github.com/dagimg-dot/gitsnip/cmd/gitsnip@latest
+```
+
 ### Manual Installation
 
 #### Linux/macOS
