@@ -6,6 +6,7 @@
 
 [![GitHub release](https://img.shields.io/github/v/release/dagimg-dot/gitsnip)](https://github.com/dagimg-dot/gitsnip/releases/latest)
 [![License](https://img.shields.io/github/license/dagimg-dot/gitsnip)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/dagimg-dot/gitsnip/total)](https://github.com/dagimg-dot/gitsnip/releases)
 
 ## Features
 
