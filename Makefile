@@ -16,7 +16,7 @@ LDFLAGS := -s -w \
   -X github.com/dagimg-dot/gitsnip/internal/cli.buildDate=$(BUILD_DATE) \
   -X github.com/dagimg-dot/gitsnip/internal/cli.builtBy=$(BUILD_BY)
 
-.PHONY: all build clean run run-build lint lint-fix setup-hooks release
+.PHONY: all build clean run run-build lint lint-fix test test-v setup-hooks release
 
 all: build
 
@@ -45,6 +45,14 @@ clean:
 lint:
 	@echo "Linting..."
 	go fmt ./...
+
+test:
+	@echo "Running tests..."
+	go test $(GOFLAGS) $(TEST_FLAGS) ./tests/
+
+test-v:
+	@echo "Running tests (verbose)..."
+	go test $(GOFLAGS) -v ./tests/
 
 release:
 	@echo "Bumping version..."
