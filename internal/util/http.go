@@ -2,21 +2,9 @@ package util
 
 import (
 	"net/http"
-	"time"
 )
 
-const (
-	UserAgent      = "GitSnip/1.0"
-	DefaultTimeout = 30 * time.Second
-)
-
-func NewHTTPClient(token string) *http.Client {
-	client := &http.Client{
-		Timeout: DefaultTimeout,
-	}
-
-	return client
-}
+const UserAgent = "GitSnip/1.0"
 
 func NewGitHubRequest(method, url string, token string) (*http.Request, error) {
 	req, err := http.NewRequest(method, url, nil)

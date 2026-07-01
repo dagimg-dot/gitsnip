@@ -15,6 +15,10 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/util"
 )
 
+type HTTPDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 const (
 	GitHubAPIBaseURL = "https://api.github.com"
 )
@@ -27,16 +31,18 @@ type GitHubContentItem struct {
 	URL         string `json:"url"`
 }
 
-func NewGitHubAPIDownloader(opts model.DownloadOptions) Downloader {
+func NewGitHubAPIDownloader(opts model.DownloadOptions, client HTTPDoer) Downloader {
 	return &gitHubAPIDownloader{
-		opts:   opts,
-		client: util.NewHTTPClient(opts.Token),
+		opts:    opts,
+		client:  client,
+		baseURL: GitHubAPIBaseURL,
 	}
 }
 
 type gitHubAPIDownloader struct {
-	opts   model.DownloadOptions
-	client *http.Client
+	opts    model.DownloadOptions
+	client  HTTPDoer
+	baseURL string
 }
 
 func (g *gitHubAPIDownloader) Download() error {
@@ -66,16 +72,10 @@ func (g *gitHubAPIDownloader) Download() error {
 }
 
 func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$`),
-		regexp.MustCompile(`github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$`),
-	}
-
-	for _, pattern := range patterns {
-		matches := pattern.FindStringSubmatch(repoURL)
-		if matches != nil && len(matches) >= 3 {
-			return matches[1], matches[2], nil
-		}
+	pattern := regexp.MustCompile(`github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$`)
+	matches := pattern.FindStringSubmatch(repoURL)
+	if matches != nil && len(matches) >= 3 {
+		return matches[1], matches[2], nil
 	}
 
 	return "", "", fmt.Errorf("URL does not match GitHub repository pattern: %s", repoURL)
@@ -113,7 +113,7 @@ func (g *gitHubAPIDownloader) downloadDirectory(owner, repo string, items []GitH
 
 func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubContentItem, bool, error) {
 	apiURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s",
-		GitHubAPIBaseURL, owner, repo, url.PathEscape(path))
+		g.baseURL, owner, repo, url.PathEscape(path))
 
 	if g.opts.Branch != "" {
 		apiURL = fmt.Sprintf("%s?ref=%s", apiURL, url.QueryEscape(g.opts.Branch))

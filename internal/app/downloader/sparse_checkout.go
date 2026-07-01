@@ -14,16 +14,23 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/util"
 )
 
-type sparseCheckoutDownloader struct {
-	opts model.DownloadOptions
+// gitRunner abstracts git command execution for testability.
+type GitRunner interface {
+	Run(ctx context.Context, dir string, args ...string) (string, error)
+	HasGit() bool
 }
 
-func NewSparseCheckoutDownloader(opts model.DownloadOptions) Downloader {
-	return &sparseCheckoutDownloader{opts: opts}
+type sparseCheckoutDownloader struct {
+	opts   model.DownloadOptions
+	runner GitRunner
+}
+
+func NewSparseCheckoutDownloader(opts model.DownloadOptions, runner GitRunner) Downloader {
+	return &sparseCheckoutDownloader{opts: opts, runner: runner}
 }
 
 func (s *sparseCheckoutDownloader) Download() error {
-	if !gitutil.IsGitInstalled() {
+	if !s.runner.HasGit() {
 		return &errors.AppError{
 			Err:     errors.ErrGitNotInstalled,
 			Message: "Git is not installed on this system",
@@ -113,11 +120,11 @@ func (s *sparseCheckoutDownloader) getAuthenticatedRepoURL() string {
 }
 
 func (s *sparseCheckoutDownloader) initRepo(ctx context.Context, dir, repoURL string) error {
-	if _, err := gitutil.RunGitCommand(ctx, dir, "init"); err != nil {
+	if _, err := s.runner.Run(ctx, dir, "init"); err != nil {
 		return errors.ParseGitError(err, "git init failed")
 	}
 
-	if _, err := gitutil.RunGitCommand(ctx, dir, "remote", "add", "origin", repoURL); err != nil {
+	if _, err := s.runner.Run(ctx, dir, "remote", "add", "origin", repoURL); err != nil {
 		return errors.ParseGitError(err, "failed to add remote")
 	}
 
@@ -125,11 +132,11 @@ func (s *sparseCheckoutDownloader) initRepo(ctx context.Context, dir, repoURL st
 }
 
 func (s *sparseCheckoutDownloader) setupSparseCheckout(ctx context.Context, dir string) error {
-	if _, err := gitutil.RunGitCommand(ctx, dir, "sparse-checkout", "init", "--cone"); err != nil {
+	if _, err := s.runner.Run(ctx, dir, "sparse-checkout", "init", "--cone"); err != nil {
 		return errors.ParseGitError(err, "failed to enable sparse checkout")
 	}
 
-	if _, err := gitutil.RunGitCommand(ctx, dir, "sparse-checkout", "set", s.opts.Subdir); err != nil {
+	if _, err := s.runner.Run(ctx, dir, "sparse-checkout", "set", s.opts.Subdir); err != nil {
 		return errors.ParseGitError(err, "failed to set sparse checkout pattern")
 	}
 
@@ -145,11 +152,11 @@ func (s *sparseCheckoutDownloader) pullContent(ctx context.Context, dir string) 
 	if s.opts.Branch != "" {
 		fetchArgs = append(fetchArgs, s.opts.Branch)
 	}
-	if _, err := gitutil.RunGitCommand(ctx, dir, fetchArgs...); err != nil {
+	if _, err := s.runner.Run(ctx, dir, fetchArgs...); err != nil {
 		return errors.ParseGitError(err, "failed to fetch content")
 	}
 
-	if _, err := gitutil.RunGitCommand(ctx, dir, "checkout", "FETCH_HEAD"); err != nil {
+	if _, err := s.runner.Run(ctx, dir, "checkout", "FETCH_HEAD"); err != nil {
 		return errors.ParseGitError(err, "failed to checkout content")
 	}
 

@@ -61,11 +61,7 @@ Arguments:
 			folderPath = strings.ReplaceAll(folderPath, "\\", "/")
 
 			if provider == "" {
-				if strings.Contains(repoURL, "github.com") {
-					provider = "github"
-				} else {
-					provider = "github"
-				}
+				provider = "github"
 			}
 
 			methodType := model.MethodTypeSparse

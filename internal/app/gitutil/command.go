@@ -84,3 +84,15 @@ func CreateTempDir() (string, error) {
 func CleanupTempDir(dir string) error {
 	return os.RemoveAll(dir)
 }
+
+// RealRunner is a production git command runner that delegates to the
+// package-level functions. It satisfies the downloader.gitRunner interface.
+type RealRunner struct{}
+
+func (RealRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {
+	return RunGitCommand(ctx, dir, args...)
+}
+
+func (RealRunner) HasGit() bool {
+	return IsGitInstalled()
+}
