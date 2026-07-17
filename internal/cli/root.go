@@ -96,7 +96,6 @@ Arguments:
 			}
 
 			err := app.Download(opts)
-
 			var appErr *apperrors.AppError
 			if errors.As(err, &appErr) {
 				cmd.SilenceUsage = true
