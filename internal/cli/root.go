@@ -57,6 +57,8 @@ Arguments:
 			} else {
 				outputDir = filepath.Base(folderPath)
 			}
+			// Normalize folder path to use forward slashes
+			folderPath = strings.ReplaceAll(folderPath, "\\", "/")
 
 			if provider == "" {
 				if strings.Contains(repoURL, "github.com") {
