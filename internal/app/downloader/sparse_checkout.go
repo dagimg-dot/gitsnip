@@ -59,15 +59,11 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req *model.Requ
 	}
 
 	rep.Stage("cloning")
-	rev := "HEAD"
-	var err error
+	rev, obtain := "HEAD", g.clone
 	if isCommitID(g.ref) {
-		rev = "FETCH_HEAD"
-		err = g.fetchCommit(ctx, repoDir)
-	} else {
-		err = g.clone(ctx, repoDir)
+		rev, obtain = "FETCH_HEAD", g.fetchCommit
 	}
-	if err != nil {
+	if err := obtain(ctx, repoDir); err != nil {
 		return model.Snapshot{}, g.failure(ctx, err)
 	}
 
@@ -106,7 +102,7 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req *model.Requ
 	return model.Snapshot{Dir: repoDir, Ref: ref, Commit: commit, Paths: paths, List: list}, nil
 }
 
-func (g *gitSession) splitRefPath(ctx context.Context, refPath string) (string, string, error) {
+func (g *gitSession) splitRefPath(ctx context.Context, refPath string) (ref, rest string, err error) {
 	segs := strings.Split(refPath, "/")
 	candidates := make([]string, len(segs))
 	for i := range segs {
@@ -205,10 +201,10 @@ func (g *gitSession) restrict(ctx context.Context, repoDir string, rules []strin
 	}
 
 	info := filepath.Join(repoDir, ".git", "info")
-	if err := os.MkdirAll(info, 0o755); err != nil {
+	if err := os.MkdirAll(info, 0o750); err != nil {
 		return fmt.Errorf("failed to prepare the sparse checkout: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(info, "sparse-checkout"), []byte(strings.Join(rules, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(info, "sparse-checkout"), []byte(strings.Join(rules, "\n")+"\n"), 0o600); err != nil {
 		return fmt.Errorf("failed to prepare the sparse checkout: %w", err)
 	}
 	return nil

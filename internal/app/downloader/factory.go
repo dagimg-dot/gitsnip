@@ -38,7 +38,11 @@ func GetDownloader(req *model.Request) (Downloader, model.Method, error) {
 }
 
 func httpClient() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Client{}
+	}
+	transport := base.Clone()
 	transport.ResponseHeaderTimeout = 30 * time.Second
 	return &http.Client{Transport: transport}
 }

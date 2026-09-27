@@ -79,9 +79,9 @@ func newRootCmd(o *options, stdout, stderr io.Writer) *cobra.Command {
 	f.BoolP("help", "h", false, "show this help")
 	f.Bool("version", false, "print the version")
 	f.StringVarP(&o.provider, "provider", "p", "", "")
-	f.MarkHidden("provider")
+	f.Lookup("provider").Hidden = true
 	for name, value := range map[string]string{"output": "dir", "branch": "ref", "method": "name", "token": "token"} {
-		f.SetAnnotation(name, valueAnnotation, []string{value})
+		f.Lookup(name).Annotations = map[string][]string{valueAnnotation: {value}}
 	}
 
 	cmd.AddCommand(newVersionCmd(stdout))

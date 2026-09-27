@@ -72,7 +72,7 @@ func (s *Source) Display() string {
 	}
 }
 
-func trailingRef(s string) (string, string) {
+func trailingRef(s string) (body, ref string) {
 	if i := strings.LastIndex(s, "@"); i > 0 && i < len(s)-1 && s[i-1] != '/' {
 		return s[:i], s[i+1:]
 	}
@@ -196,7 +196,7 @@ func parseWeb(s string, u *url.URL) (Source, error) {
 	return src, nil
 }
 
-func splitRepoPath(host string, segs []string) ([]string, []string) {
+func splitRepoPath(host string, segs []string) (repo, rest []string) {
 	for i, seg := range segs {
 		if seg == "-" {
 			return segs[:i], segs[i+1:]
@@ -266,7 +266,7 @@ func split(p string) []string {
 	return segs
 }
 
-func splitRef(seg string) (string, string) {
+func splitRef(seg string) (name, ref string) {
 	if i := strings.LastIndex(seg, "@"); i > 0 {
 		return seg[:i], seg[i+1:]
 	}

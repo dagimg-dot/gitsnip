@@ -190,7 +190,7 @@ func (u *UI) print(build func(Paint) string) {
 		}
 		u.degrade()
 	}
-	io.WriteString(u.w, build(plain))
+	_, _ = io.WriteString(u.w, build(plain))
 }
 
 func (u *UI) degrade() {

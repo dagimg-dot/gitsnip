@@ -106,29 +106,28 @@ func (g *gitHubAPIDownloader) Download(ctx context.Context, req *model.Request, 
 	return model.Snapshot{Dir: dir, Ref: ref, Commit: sha, Paths: paths, List: list}, nil
 }
 
-func (c *githubClient) resolve(ctx context.Context, req *model.Request) (string, string, []pathspec.Pattern, error) {
+func (c *githubClient) resolve(ctx context.Context, req *model.Request) (ref, sha string, paths []pathspec.Pattern, err error) {
 	if req.Source.RefPath == "" {
-		ref := req.Ref
+		ref = req.Ref
 		if ref == "" {
-			var err error
 			if ref, err = c.defaultBranch(ctx); err != nil {
 				return "", "", nil, err
 			}
 		}
-		sha, err := c.commit(ctx, ref)
+		sha, err = c.commit(ctx, ref)
 		return ref, sha, req.Paths, err
 	}
 
 	segs := strings.Split(req.Source.RefPath, "/")
 	for i := 1; i <= len(segs); i++ {
-		ref := strings.Join(segs[:i], "/")
-		sha, found, err := c.lookupCommit(ctx, ref)
-		if err != nil {
+		candidate := strings.Join(segs[:i], "/")
+		var found bool
+		if sha, found, err = c.lookupCommit(ctx, candidate); err != nil {
 			return "", "", nil, err
 		}
 		if found {
-			paths, err := withPath(req.Paths, strings.Join(segs[i:], "/"))
-			return ref, sha, paths, err
+			paths, err = withPath(req.Paths, strings.Join(segs[i:], "/"))
+			return candidate, sha, paths, err
 		}
 	}
 	return "", "", nil, c.missingRef(ctx, segs[0])
@@ -220,7 +219,7 @@ func (c *githubClient) slug() string {
 }
 
 func (c *githubClient) get(ctx context.Context, target, accept string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -249,7 +248,7 @@ func (c *githubClient) getJSON(ctx context.Context, target string, into any) (in
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return resp.StatusCode, c.failure(resp)
 	}
@@ -283,17 +282,17 @@ func (c *githubClient) commit(ctx context.Context, ref string) (string, error) {
 	return "", c.missingRef(ctx, ref)
 }
 
-func (c *githubClient) lookupCommit(ctx context.Context, ref string) (string, bool, error) {
+func (c *githubClient) lookupCommit(ctx context.Context, ref string) (sha string, found bool, err error) {
 	resp, err := c.get(ctx, fmt.Sprintf("%s/repos/%s/commits/%s", c.apiURL, c.escapedSlug(), escapePath(ref)), "application/vnd.github.sha")
 	if err != nil {
 		return "", false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
-		if err != nil {
+		var body []byte
+		if body, err = io.ReadAll(io.LimitReader(resp.Body, 256)); err != nil {
 			return "", false, fmt.Errorf("failed to read the commit: %w", err)
 		}
 		return strings.TrimSpace(string(body)), true, nil
@@ -324,7 +323,7 @@ func (c *githubClient) tree(ctx context.Context, sha string) (tree, error) {
 
 func (c *githubClient) fetch(ctx context.Context, sha string, e treeEntry, dir string) error {
 	target := filepath.Join(dir, filepath.FromSlash(e.Path))
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return fmt.Errorf("failed to create a directory for %s: %w", e.Path, err)
 	}
 
@@ -336,7 +335,7 @@ func (c *githubClient) fetch(ctx context.Context, sha string, e treeEntry, dir s
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return c.failure(resp)
 	}
@@ -353,7 +352,7 @@ func (c *githubClient) fetchSymlink(ctx context.Context, e treeEntry, target str
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return c.failure(resp)
 	}

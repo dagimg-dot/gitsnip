@@ -13,7 +13,11 @@ import (
 type SkipFunc func(rel, reason string)
 
 func EnsureDir(path string) error {
-	return os.MkdirAll(path, 0755)
+	return os.MkdirAll(path, 0o755)
+}
+
+func closeQuietly(c io.Closer) {
+	_ = c.Close()
 }
 
 func SaveToFile(path string, content io.Reader, perm os.FileMode) error {
@@ -22,7 +26,7 @@ func SaveToFile(path string, content io.Reader, perm os.FileMode) error {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", path, err)
 	}
@@ -95,7 +99,7 @@ func CopySymlink(src, dst, root string, skip SkipFunc) error {
 	if err := EnsureDir(filepath.Dir(dst)); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
-	if err := os.Symlink(target, dst); err != nil {
+	if os.Symlink(target, dst) != nil {
 		report(skip, rel, "symlinks can't be created here")
 	}
 	return nil
@@ -132,27 +136,27 @@ func removeIfNotDir(path string) error {
 }
 
 func CopyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(filepath.Clean(src))
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer srcFile.Close()
+	defer closeQuietly(srcFile)
 
 	srcInfo, err := srcFile.Stat()
 	if err != nil {
 		return fmt.Errorf("failed to stat source file: %w", err)
 	}
 
-	if err := EnsureDir(filepath.Dir(dst)); err != nil {
+	if err = EnsureDir(filepath.Dir(dst)); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
-	if info, err := os.Lstat(dst); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(dst); err != nil {
+	if info, statErr := os.Lstat(dst); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		if err = os.Remove(dst); err != nil {
 			return fmt.Errorf("failed to replace %s: %w", dst, err)
 		}
 	}
 
-	dstFile, err := os.Create(dst)
+	dstFile, err := os.Create(filepath.Clean(dst))
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}

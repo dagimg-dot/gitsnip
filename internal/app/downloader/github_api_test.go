@@ -175,9 +175,9 @@ func apiDownload(t *testing.T, hub *fakeHub, req *model.Request) (string, model.
 	return dir, snap, ev, err
 }
 
-func readFile(t *testing.T, path string) string {
+func readFile(t *testing.T, file string) string {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}

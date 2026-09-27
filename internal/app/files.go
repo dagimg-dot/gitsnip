@@ -23,6 +23,11 @@ type selection struct {
 	single bool
 }
 
+type tally struct {
+	files int
+	bytes int64
+}
+
 func listFiles(root string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -128,40 +133,40 @@ func defaultOutput(sel selection, repo string) string {
 	}
 }
 
-func writeFiles(ctx context.Context, root string, sel selection, output string, force bool, rep model.Reporter) (int, int64, error) {
+func writeFiles(ctx context.Context, root string, sel selection, output string, force bool, rep model.Reporter) (tally, error) {
 	info, statErr := os.Stat(output)
 	existed := statErr == nil
 	if existed && !info.IsDir() {
-		return 0, 0, apperr.Wrap(apperr.ErrDestinationExists, nil,
+		return tally{}, apperr.Wrap(apperr.ErrDestinationExists, nil,
 			fmt.Sprintf("%s exists and isn't a folder", DisplayPath(output)), "pick another folder with -o")
 	}
 	if existed && !force {
 		if err := checkConflicts(sel, output); err != nil {
-			return 0, 0, err
+			return tally{}, err
 		}
 	}
 
-	written, size, err := copySelection(ctx, root, sel, output, rep)
+	written, err := copySelection(ctx, root, sel, output, rep)
 	if err != nil && !existed {
-		os.RemoveAll(output)
+		_ = os.RemoveAll(output)
 	}
-	return written, size, err
+	return written, err
 }
 
-func copySelection(ctx context.Context, root string, sel selection, output string, rep model.Reporter) (int, int64, error) {
+func copySelection(ctx context.Context, root string, sel selection, output string, rep model.Reporter) (tally, error) {
 	base := filepath.Join(root, filepath.FromSlash(sel.base))
-	written, size := 0, int64(0)
+	var written tally
 
 	for _, file := range sel.files {
 		if err := ctx.Err(); err != nil {
-			return written, size, err
+			return written, err
 		}
 
 		src := filepath.Join(root, filepath.FromSlash(file))
 		dst := filepath.Join(output, filepath.FromSlash(relativeTo(sel.base, file)))
 		info, err := os.Lstat(src)
 		if err != nil {
-			return written, size, err
+			return written, err
 		}
 
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -171,22 +176,22 @@ func copySelection(ctx context.Context, root string, sel selection, output strin
 				rep.Warn(fmt.Sprintf("skipped symlink %s (%s)", file, reason))
 			})
 			if err != nil {
-				return written, size, err
+				return written, err
 			}
 			if kept {
-				written++
+				written.files++
 			}
 			continue
 		}
 
 		if err := util.CopyFile(src, dst); err != nil {
-			return written, size, err
+			return written, err
 		}
-		written++
-		size += info.Size()
+		written.files++
+		written.bytes += info.Size()
 	}
 
-	return written, size, nil
+	return written, nil
 }
 
 func checkConflicts(sel selection, output string) error {

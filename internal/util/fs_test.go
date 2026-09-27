@@ -48,7 +48,7 @@ func TestCopyFile(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.txt")
 	dst := filepath.Join(dir, "sub", "dst.txt")
-	os.WriteFile(src, []byte("file content"), 0644)
+	os.WriteFile(src, []byte("file content"), 0o644)
 	if err := util.CopyFile(src, dst); err != nil {
 		t.Fatalf("CopyFile failed: %v", err)
 	}
@@ -72,8 +72,8 @@ func TestCopyTree(t *testing.T) {
 	}
 	for path, content := range files {
 		full := filepath.Join(src, path)
-		os.MkdirAll(filepath.Dir(full), 0755)
-		os.WriteFile(full, []byte(content), 0644)
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		os.WriteFile(full, []byte(content), 0o644)
 	}
 
 	target := filepath.Join(dst, "copied")
@@ -100,12 +100,12 @@ func TestCopyTreeNeverFollowsSymlinks(t *testing.T) {
 	}
 
 	outside := filepath.Join(t.TempDir(), "id_rsa")
-	os.WriteFile(outside, []byte("PRIVATE KEY"), 0600)
+	os.WriteFile(outside, []byte("PRIVATE KEY"), 0o600)
 
 	src := t.TempDir()
-	os.MkdirAll(filepath.Join(src, "icons", "deep"), 0755)
-	os.WriteFile(filepath.Join(src, "icons", "star.svg"), []byte("<svg/>"), 0644)
-	os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0644)
+	os.MkdirAll(filepath.Join(src, "icons", "deep"), 0o755)
+	os.WriteFile(filepath.Join(src, "icons", "star.svg"), []byte("<svg/>"), 0o644)
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0o644)
 	links := map[string]string{
 		"to-file":          "a.txt",
 		"to-dir":           "icons",
@@ -164,9 +164,9 @@ func TestCopyFileReplacesSymlinksInsteadOfWritingThroughThem(t *testing.T) {
 
 	dir := t.TempDir()
 	victim := filepath.Join(dir, "victim.txt")
-	os.WriteFile(victim, []byte("untouched"), 0644)
+	os.WriteFile(victim, []byte("untouched"), 0o644)
 	src := filepath.Join(dir, "src.txt")
-	os.WriteFile(src, []byte("new"), 0644)
+	os.WriteFile(src, []byte("new"), 0o644)
 	dst := filepath.Join(dir, "dst.txt")
 	os.Symlink(victim, dst)
 

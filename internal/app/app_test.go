@@ -342,7 +342,7 @@ func TestRunRejectsAFileWhereTheFolderShouldGo(t *testing.T) {
 
 func TestRunSuggestsTheClosestPath(t *testing.T) {
 	inTempDir(t)
-	var listing []string
+	listing := make([]string, 0, len(repoFiles))
 	for name := range repoFiles {
 		listing = append(listing, name)
 	}

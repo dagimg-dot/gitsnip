@@ -42,7 +42,7 @@ func Print(w io.Writer, getenv func(string) string, build func(Paint) string) {
 	}) {
 		return
 	}
-	io.WriteString(w, build(plain))
+	_, _ = io.WriteString(w, build(plain))
 }
 
 func attempt(write func() error) (ok bool) {

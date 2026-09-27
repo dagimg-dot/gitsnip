@@ -25,7 +25,7 @@ func run(ctx context.Context, dl downloader.Downloader, req *model.Request, rep 
 	if err != nil {
 		return model.Result{}, fmt.Errorf("failed to create a staging directory: %w", err)
 	}
-	defer os.RemoveAll(staging)
+	defer func() { _ = os.RemoveAll(staging) }()
 
 	snap, err := dl.Download(ctx, req, staging, rep)
 	if err != nil {
@@ -53,7 +53,7 @@ func run(ctx context.Context, dl downloader.Downloader, req *model.Request, rep 
 	}
 
 	rep.Stage(fmt.Sprintf("writing %d files", len(sel.files)))
-	written, size, err := writeFiles(ctx, snap.Dir, sel, output, req.Force, rep)
+	written, err := writeFiles(ctx, snap.Dir, sel, output, req.Force, rep)
 	if err != nil {
 		return model.Result{}, err
 	}
@@ -69,7 +69,7 @@ func run(ctx context.Context, dl downloader.Downloader, req *model.Request, rep 
 		Paths:  paths,
 		Output: output,
 		Target: target,
-		Files:  written,
-		Bytes:  size,
+		Files:  written.files,
+		Bytes:  written.bytes,
 	}, nil
 }

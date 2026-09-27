@@ -15,11 +15,11 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/cli"
 )
 
-func gitsnip(t *testing.T, args ...string) (int, string, string) {
+func gitsnip(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
-	var stdout, stderr bytes.Buffer
-	code := cli.Run(context.Background(), args, &stdout, &stderr)
-	return code, stdout.String(), stderr.String()
+	var out, errOut bytes.Buffer
+	code = cli.Run(context.Background(), args, &out, &errOut)
+	return code, out.String(), errOut.String()
 }
 
 func fixture(t *testing.T) string {
