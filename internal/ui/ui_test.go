@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var summary = Summary{
+var summary = &Summary{
 	Repo:    "dagimg-dot/gitsnip",
 	Ref:     "main",
 	What:    "internal/app",
@@ -30,9 +30,9 @@ func TestPlainSuccessMatchesTheDesign(t *testing.T) {
 
 func TestWholeRepositorySummarySkipsThePaths(t *testing.T) {
 	var buf bytes.Buffer
-	s := summary
+	s := *summary
 	s.What, s.Target, s.Files, s.Bytes = "", "./gitsnip", 1, 512
-	New(&buf, Options{}).Success(s)
+	New(&buf, Options{}).Success(&s)
 	if want := "✓ dagimg-dot/gitsnip@main → ./gitsnip   1 file · 512 B · 1.4s\n"; buf.String() != want {
 		t.Errorf("got  %q\nwant %q", buf.String(), want)
 	}

@@ -28,7 +28,7 @@ func TestResolveToken(t *testing.T) {
 		{"flag for other hosts", "glpat", gitlab, nil, "glpat"},
 	}
 	for _, tc := range cases {
-		if got := resolveToken(tc.flag, tc.src, env(tc.vars)); got != tc.want {
+		if got := resolveToken(tc.flag, &tc.src, env(tc.vars)); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}

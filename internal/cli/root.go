@@ -55,7 +55,7 @@ func newRootCmd(o *options, stdout, stderr io.Writer) *cobra.Command {
 			if len(args) == 0 {
 				return cmd.Help()
 			}
-			return snip(cmd.Context(), *o, args, stdout, stderr)
+			return snip(cmd.Context(), o, args, stdout, stderr)
 		},
 	}
 	cmd.SetOut(stdout)
@@ -88,7 +88,7 @@ func newRootCmd(o *options, stdout, stderr io.Writer) *cobra.Command {
 	return cmd
 }
 
-func snip(ctx context.Context, o options, args []string, stdout, stderr io.Writer) error {
+func snip(ctx context.Context, o *options, args []string, stdout, stderr io.Writer) error {
 	started := time.Now()
 	u := ui.New(stderr, ui.Options{Quiet: o.quiet, Verbose: o.verbose, JSON: o.json})
 	defer u.Stop()
@@ -99,20 +99,20 @@ func snip(ctx context.Context, o options, args []string, stdout, stderr io.Write
 	}
 
 	u.Start(req.Source.Display())
-	res, err := app.Download(ctx, req, u)
+	res, err := app.Download(ctx, &req, u)
 	if err != nil {
 		return err
 	}
 
 	elapsed := time.Since(started)
 	if o.json {
-		return writeJSON(stdout, req.Source, res, u.Warnings(), elapsed)
+		return writeJSON(stdout, &req.Source, &res, u.Warnings(), elapsed)
 	}
-	u.Success(summarize(req.Source, res, elapsed))
+	u.Success(summarize(&req.Source, &res, elapsed))
 	return nil
 }
 
-func buildRequest(o options, args []string, u *ui.UI) (model.Request, error) {
+func buildRequest(o *options, args []string, u *ui.UI) (model.Request, error) {
 	if o.provider != "" {
 		u.Warn("--provider isn't needed anymore; the host comes from the source")
 	}
@@ -136,7 +136,7 @@ func buildRequest(o options, args []string, u *ui.UI) (model.Request, error) {
 		return model.Request{}, usage(capitalize(err.Error()), "")
 	}
 
-	ref, err := pickRef(src, o.branch)
+	ref, err := pickRef(&src, o.branch)
 	if err != nil {
 		return model.Request{}, err
 	}
@@ -151,13 +151,13 @@ func buildRequest(o options, args []string, u *ui.UI) (model.Request, error) {
 		Ref:    ref,
 		Paths:  paths,
 		Output: output,
-		Token:  resolveToken(o.token, src, os.Getenv),
+		Token:  resolveToken(o.token, &src, os.Getenv),
 		Method: method,
 		Force:  o.force,
 	}, nil
 }
 
-func pickRef(src source.Source, branch string) (string, error) {
+func pickRef(src *source.Source, branch string) (string, error) {
 	switch {
 	case branch == "":
 		return src.Ref, nil

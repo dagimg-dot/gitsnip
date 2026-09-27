@@ -130,7 +130,7 @@ func (u *UI) Warnings() []string {
 	return append([]string(nil), u.warnings...)
 }
 
-func (u *UI) Success(s Summary) {
+func (u *UI) Success(s *Summary) {
 	u.Stop()
 	u.mu.Lock()
 	defer u.mu.Unlock()

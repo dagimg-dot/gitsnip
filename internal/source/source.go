@@ -40,12 +40,12 @@ func Parse(raw string) (Source, error) {
 	case strings.ContainsAny(first, ".:"):
 		body, ref := trailingRef(s)
 		if src, err = parseURL("https://" + body); err == nil {
-			src, err = applyRef(src, ref)
+			err = src.applyRef(ref)
 		}
 	default:
 		body, ref := trailingRef(s)
 		if src, err = parseShorthand(body); err == nil {
-			src, err = applyRef(src, ref)
+			err = src.applyRef(ref)
 		}
 	}
 	if err != nil {
@@ -57,11 +57,11 @@ func Parse(raw string) (Source, error) {
 	return src, nil
 }
 
-func (s Source) GitHub() bool {
+func (s *Source) GitHub() bool {
 	return s.Host == "github.com"
 }
 
-func (s Source) Display() string {
+func (s *Source) Display() string {
 	switch {
 	case s.GitHub():
 		return s.Owner + "/" + s.Repo
@@ -79,15 +79,15 @@ func trailingRef(s string) (string, string) {
 	return s, ""
 }
 
-func applyRef(src Source, ref string) (Source, error) {
+func (s *Source) applyRef(ref string) error {
 	if ref == "" {
-		return src, nil
+		return nil
 	}
-	if src.Ref != "" || src.RefPath != "" {
-		return Source{}, errors.New("the source names a branch twice")
+	if s.Ref != "" || s.RefPath != "" {
+		return errors.New("the source names a branch twice")
 	}
-	src.Ref = ref
-	return src, nil
+	s.Ref = ref
+	return nil
 }
 
 func parseShorthand(s string) (Source, error) {
@@ -99,7 +99,7 @@ func parseShorthand(s string) (Source, error) {
 	if err := validate(s, []string{src.Owner, src.Repo}); err != nil {
 		return Source{}, err
 	}
-	src.URL = githubURL(src)
+	src.URL = githubURL(&src)
 	return src, nil
 }
 
@@ -188,7 +188,7 @@ func parseWeb(s string, u *url.URL) (Source, error) {
 	}
 
 	if src.GitHub() {
-		src.URL = githubURL(src)
+		src.URL = githubURL(&src)
 	} else {
 		clone := url.URL{Scheme: u.Scheme, User: u.User, Host: u.Host, Path: "/" + strings.Join(repoSegs, "/")}
 		src.URL = clone.String()
@@ -252,7 +252,7 @@ func (s *Source) locate(raw string, rest []string) error {
 	return nil
 }
 
-func githubURL(s Source) string {
+func githubURL(s *Source) string {
 	return "https://github.com/" + s.Owner + "/" + s.Repo + ".git"
 }
 

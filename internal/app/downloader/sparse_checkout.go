@@ -36,7 +36,7 @@ type gitSession struct {
 	ref    string
 }
 
-func (s *sparseCheckoutDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
+func (s *sparseCheckoutDownloader) Download(ctx context.Context, req *model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
 	if !s.runner.HasGit() {
 		return model.Snapshot{}, apperr.Wrap(apperr.ErrGitNotInstalled, nil,
 			"Git isn't installed", "install git, or use --method api for GitHub repositories")

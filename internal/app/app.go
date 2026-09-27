@@ -10,7 +10,7 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 )
 
-func Download(ctx context.Context, req model.Request, rep model.Reporter) (model.Result, error) {
+func Download(ctx context.Context, req *model.Request, rep model.Reporter) (model.Result, error) {
 	dl, method, err := downloader.GetDownloader(req)
 	if err != nil {
 		return model.Result{}, err
@@ -20,7 +20,7 @@ func Download(ctx context.Context, req model.Request, rep model.Reporter) (model
 	return res, err
 }
 
-func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep model.Reporter) (model.Result, error) {
+func run(ctx context.Context, dl downloader.Downloader, req *model.Request, rep model.Reporter) (model.Result, error) {
 	staging, err := os.MkdirTemp("", "gitsnip-*")
 	if err != nil {
 		return model.Result{}, fmt.Errorf("failed to create a staging directory: %w", err)
@@ -44,7 +44,7 @@ func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep m
 
 	sel, gap := selectFiles(paths, files)
 	if gap != nil {
-		return model.Result{}, missing(ctx, *gap, req, snap)
+		return model.Result{}, missing(ctx, *gap, req, &snap)
 	}
 
 	output := req.Output

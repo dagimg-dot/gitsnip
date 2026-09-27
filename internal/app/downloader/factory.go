@@ -10,7 +10,7 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
 )
 
-func GetDownloader(req model.Request) (Downloader, model.Method, error) {
+func GetDownloader(req *model.Request) (Downloader, model.Method, error) {
 	method := req.Method
 	if method == "" || method == model.MethodAuto {
 		switch {

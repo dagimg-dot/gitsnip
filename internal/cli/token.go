@@ -6,7 +6,7 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/source"
 )
 
-func resolveToken(flag string, src source.Source, getenv func(string) string) string {
+func resolveToken(flag string, src *source.Source, getenv func(string) string) string {
 	if flag != "" {
 		return flag
 	}

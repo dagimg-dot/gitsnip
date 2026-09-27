@@ -64,7 +64,7 @@ type tree struct {
 	Truncated bool        `json:"truncated"`
 }
 
-func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
+func (g *gitHubAPIDownloader) Download(ctx context.Context, req *model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
 	if !req.Source.GitHub() {
 		return model.Snapshot{}, apperr.Wrap(apperr.ErrUnsupported, nil,
 			"The api method only works with github.com", "use --method sparse for other hosts")
@@ -106,7 +106,7 @@ func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, d
 	return model.Snapshot{Dir: dir, Ref: ref, Commit: sha, Paths: paths, List: list}, nil
 }
 
-func (c *githubClient) resolve(ctx context.Context, req model.Request) (string, string, []pathspec.Pattern, error) {
+func (c *githubClient) resolve(ctx context.Context, req *model.Request) (string, string, []pathspec.Pattern, error) {
 	if req.Source.RefPath == "" {
 		ref := req.Ref
 		if ref == "" {

@@ -7,5 +7,5 @@ import (
 )
 
 type Downloader interface {
-	Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error)
+	Download(ctx context.Context, req *model.Request, dir string, rep model.Reporter) (model.Snapshot, error)
 }

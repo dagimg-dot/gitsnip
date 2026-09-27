@@ -28,8 +28,8 @@ type jsonResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-func summarize(src source.Source, res model.Result, elapsed time.Duration) ui.Summary {
-	return ui.Summary{
+func summarize(src *source.Source, res *model.Result, elapsed time.Duration) *ui.Summary {
+	return &ui.Summary{
 		Repo:    src.Display(),
 		Ref:     refLabel(res.Ref, res.Commit),
 		What:    pathsLabel(res.Paths),
@@ -40,7 +40,7 @@ func summarize(src source.Source, res model.Result, elapsed time.Duration) ui.Su
 	}
 }
 
-func writeJSON(w io.Writer, src source.Source, res model.Result, warnings []string, elapsed time.Duration) error {
+func writeJSON(w io.Writer, src *source.Source, res *model.Result, warnings []string, elapsed time.Duration) error {
 	output, err := filepath.Abs(res.Output)
 	if err != nil {
 		output = res.Output

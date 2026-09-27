@@ -164,7 +164,7 @@ func (e *events) Warn(text string) {
 	e.warnings = append(e.warnings, text)
 }
 
-func apiDownload(t *testing.T, hub *fakeHub, req model.Request) (string, model.Snapshot, *events, error) {
+func apiDownload(t *testing.T, hub *fakeHub, req *model.Request) (string, model.Snapshot, *events, error) {
 	t.Helper()
 	dir := t.TempDir()
 	if req.Source.Repo == "" {
@@ -185,7 +185,7 @@ func readFile(t *testing.T, path string) string {
 }
 
 func TestGitHubAPIDownloadsFromTheDefaultBranch(t *testing.T) {
-	dir, snap, _, err := apiDownload(t, newHub(), model.Request{Paths: patterns(t, "src")})
+	dir, snap, _, err := apiDownload(t, newHub(), &model.Request{Paths: patterns(t, "src")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestGitHubAPIDownloadsFromTheDefaultBranch(t *testing.T) {
 }
 
 func TestGitHubAPIMatchesFilesAndGlobs(t *testing.T) {
-	dir, _, _, err := apiDownload(t, newHub(), model.Request{Paths: patterns(t, "README.md", "data/*_linux.json")})
+	dir, _, _, err := apiDownload(t, newHub(), &model.Request{Paths: patterns(t, "README.md", "data/*_linux.json")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestGitHubAPIMatchesFilesAndGlobs(t *testing.T) {
 }
 
 func TestGitHubAPIWarnsAboutSubmodules(t *testing.T) {
-	_, _, ev, err := apiDownload(t, newHub(), model.Request{Paths: patterns(t, "vendor")})
+	_, _, ev, err := apiDownload(t, newHub(), &model.Request{Paths: patterns(t, "vendor")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestGitHubAPIWarnsAboutSubmodules(t *testing.T) {
 }
 
 func TestGitHubAPIUsesTheRequestedRef(t *testing.T) {
-	dir, snap, _, err := apiDownload(t, newHub(), model.Request{Ref: "v1", Paths: patterns(t, "src/a.txt")})
+	dir, snap, _, err := apiDownload(t, newHub(), &model.Request{Ref: "v1", Paths: patterns(t, "src/a.txt")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestGitHubAPIUsesTheRequestedRef(t *testing.T) {
 }
 
 func TestGitHubAPIPointsAtTheDefaultBranchWhenTheRefIsMissing(t *testing.T) {
-	_, _, _, err := apiDownload(t, newHub(), model.Request{Ref: "nope", Paths: patterns(t, "src")})
+	_, _, _, err := apiDownload(t, newHub(), &model.Request{Ref: "nope", Paths: patterns(t, "src")})
 	var appErr *apperr.Error
 	if !errors.Is(err, apperr.ErrRefNotFound) || !errors.As(err, &appErr) {
 		t.Fatalf("got %v, want ErrRefNotFound", err)
@@ -256,7 +256,7 @@ func TestGitHubAPIPointsAtTheDefaultBranchWhenTheRefIsMissing(t *testing.T) {
 }
 
 func TestGitHubAPIReportsMissingRepositories(t *testing.T) {
-	_, _, _, err := apiDownload(t, newHub(), model.Request{Source: parseSource(t, "x/y")})
+	_, _, _, err := apiDownload(t, newHub(), &model.Request{Source: parseSource(t, "x/y")})
 	if !errors.Is(err, apperr.ErrRepositoryNotFound) || err.Error() != "Repository x/y doesn't exist or is private" {
 		t.Errorf("got %v, want ErrRepositoryNotFound", err)
 	}
@@ -265,7 +265,7 @@ func TestGitHubAPIReportsMissingRepositories(t *testing.T) {
 func TestGitHubAPIExplainsRateLimits(t *testing.T) {
 	hub := newHub()
 	hub.limited = true
-	_, _, _, err := apiDownload(t, hub, model.Request{Paths: patterns(t, "src")})
+	_, _, _, err := apiDownload(t, hub, &model.Request{Paths: patterns(t, "src")})
 	var appErr *apperr.Error
 	if !errors.Is(err, apperr.ErrRateLimitExceeded) || !errors.As(err, &appErr) {
 		t.Fatalf("got %v, want ErrRateLimitExceeded", err)
@@ -278,7 +278,7 @@ func TestGitHubAPIExplainsRateLimits(t *testing.T) {
 func TestGitHubAPIRefusesTruncatedTrees(t *testing.T) {
 	hub := newHub()
 	hub.truncated = true
-	if _, _, _, err := apiDownload(t, hub, model.Request{}); !errors.Is(err, apperr.ErrUnsupported) {
+	if _, _, _, err := apiDownload(t, hub, &model.Request{}); !errors.Is(err, apperr.ErrUnsupported) {
 		t.Errorf("got %v, want ErrUnsupported", err)
 	}
 }
@@ -286,7 +286,7 @@ func TestGitHubAPIRefusesTruncatedTrees(t *testing.T) {
 func TestGitHubAPIRejectsMalformedResponses(t *testing.T) {
 	hub := newHub()
 	hub.brokenAPI = true
-	if _, _, _, err := apiDownload(t, hub, model.Request{}); err == nil || !strings.Contains(err.Error(), "failed to parse") {
+	if _, _, _, err := apiDownload(t, hub, &model.Request{}); err == nil || !strings.Contains(err.Error(), "failed to parse") {
 		t.Errorf("got %v, want a parse error", err)
 	}
 }
@@ -294,10 +294,10 @@ func TestGitHubAPIRejectsMalformedResponses(t *testing.T) {
 func TestGitHubAPISendsTheToken(t *testing.T) {
 	hub := newHub()
 	hub.token = "secret"
-	if _, _, _, err := apiDownload(t, hub, model.Request{Token: "secret", Paths: patterns(t, "README.md")}); err != nil {
+	if _, _, _, err := apiDownload(t, hub, &model.Request{Token: "secret", Paths: patterns(t, "README.md")}); err != nil {
 		t.Errorf("with the right token: %v", err)
 	}
-	if _, _, _, err := apiDownload(t, hub, model.Request{Token: "wrong"}); !errors.Is(err, apperr.ErrAuthenticationRequired) {
+	if _, _, _, err := apiDownload(t, hub, &model.Request{Token: "wrong"}); !errors.Is(err, apperr.ErrAuthenticationRequired) {
 		t.Errorf("with a wrong token: got %v, want ErrAuthenticationRequired", err)
 	}
 }
@@ -307,7 +307,7 @@ func TestGitHubAPIDownloadsManyFilesConcurrently(t *testing.T) {
 	for i := range 40 {
 		hub.files[fmt.Sprintf("many/%02d.txt", i)] = hubFile{"", "100644"}
 	}
-	dir, _, ev, err := apiDownload(t, hub, model.Request{Paths: patterns(t, "many")})
+	dir, _, ev, err := apiDownload(t, hub, &model.Request{Paths: patterns(t, "many")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestGitHubAPIDownloadsManyFilesConcurrently(t *testing.T) {
 
 func TestGitHubAPIResolvesTreeLinks(t *testing.T) {
 	src := parseSource(t, "https://github.com/o/r/tree/v1/src/sub")
-	dir, snap, _, err := apiDownload(t, newHub(), model.Request{Source: src})
+	dir, snap, _, err := apiDownload(t, newHub(), &model.Request{Source: src})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestGitHubAPIResolvesTreeLinks(t *testing.T) {
 	}
 
 	src = parseSource(t, "https://github.com/o/r/tree/nope/src")
-	if _, _, _, err := apiDownload(t, newHub(), model.Request{Source: src}); !errors.Is(err, apperr.ErrRefNotFound) {
+	if _, _, _, err := apiDownload(t, newHub(), &model.Request{Source: src}); !errors.Is(err, apperr.ErrRefNotFound) {
 		t.Errorf("missing ref in link: got %v", err)
 	}
 }

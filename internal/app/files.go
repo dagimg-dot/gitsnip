@@ -82,8 +82,8 @@ func selectFiles(patterns []pathspec.Pattern, files []string) (selection, *paths
 	return sel, nil
 }
 
-func missing(ctx context.Context, p pathspec.Pattern, req model.Request, snap model.Snapshot) error {
-	where := location(req.Source, snap.Ref)
+func missing(ctx context.Context, p pathspec.Pattern, req *model.Request, snap *model.Snapshot) error {
+	where := location(&req.Source, snap.Ref)
 	switch {
 	case p.IsAll():
 		return apperr.Wrap(apperr.ErrPathNotFound, nil, fmt.Sprintf("There's nothing to download in %s", where), "")
@@ -103,7 +103,7 @@ func missing(ctx context.Context, p pathspec.Pattern, req model.Request, snap mo
 	return apperr.Wrap(apperr.ErrPathNotFound, nil, fmt.Sprintf("Path %q doesn't exist in %s", p, where), hint)
 }
 
-func location(src source.Source, ref string) string {
+func location(src *source.Source, ref string) string {
 	name := src.Display()
 	switch {
 	case name == "":

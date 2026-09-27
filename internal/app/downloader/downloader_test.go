@@ -105,7 +105,7 @@ func patterns(t *testing.T, raws ...string) []pathspec.Pattern {
 	return ps
 }
 
-func sparseDownload(t *testing.T, req model.Request) (model.Snapshot, error) {
+func sparseDownload(t *testing.T, req *model.Request) (model.Snapshot, error) {
 	t.Helper()
 	return downloader.NewSparseCheckoutDownloader(gitutil.RealRunner{}).Download(context.Background(), req, t.TempDir(), model.Discard{})
 }
@@ -131,7 +131,7 @@ func checkedOut(t *testing.T, dir string) []string {
 
 func TestSparseCheckoutUsesTheDefaultBranchAndSkipsOtherBlobs(t *testing.T) {
 	fx := newFixture(t)
-	snap, err := sparseDownload(t, model.Request{Source: parseSource(t, fx.url), Paths: patterns(t, "src/components")})
+	snap, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url), Paths: patterns(t, "src/components")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestSparseCheckoutUsesTheDefaultBranchAndSkipsOtherBlobs(t *testing.T) {
 
 func TestSparseCheckoutMatchesFilesAndGlobs(t *testing.T) {
 	fx := newFixture(t)
-	snap, err := sparseDownload(t, model.Request{Source: parseSource(t, fx.url), Paths: patterns(t, "data/usage.txt", "data/*_linux.json")})
+	snap, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url), Paths: patterns(t, "data/usage.txt", "data/*_linux.json")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestSparseCheckoutMatchesFilesAndGlobs(t *testing.T) {
 
 func TestSparseCheckoutFetchesEverythingWithoutPaths(t *testing.T) {
 	fx := newFixture(t)
-	snap, err := sparseDownload(t, model.Request{Source: parseSource(t, fx.url)})
+	snap, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestSparseCheckoutResolvesBranchesTagsAndCommits(t *testing.T) {
 		{fx.feature, fx.feature, true},
 	}
 	for _, tc := range cases {
-		snap, err := sparseDownload(t, model.Request{Source: parseSource(t, fx.url), Ref: tc.ref, Paths: patterns(t, "src/components")})
+		snap, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url), Ref: tc.ref, Paths: patterns(t, "src/components")})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.ref, err)
 		}
@@ -210,7 +210,7 @@ func TestSparseCheckoutResolvesBranchesTagsAndCommits(t *testing.T) {
 
 func TestSparseCheckoutPointsAtTheDefaultBranchWhenTheRefIsMissing(t *testing.T) {
 	fx := newFixture(t)
-	_, err := sparseDownload(t, model.Request{Source: parseSource(t, fx.url), Ref: "main", Paths: patterns(t, "src")})
+	_, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url), Ref: "main", Paths: patterns(t, "src")})
 	var appErr *apperr.Error
 	if !errors.Is(err, apperr.ErrRefNotFound) || !errors.As(err, &appErr) {
 		t.Fatalf("got %v, want ErrRefNotFound", err)
@@ -225,7 +225,7 @@ func TestSparseCheckoutReportsMissingRepositories(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 	missing := "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "nope.git"))
-	if _, err := sparseDownload(t, model.Request{Source: parseSource(t, missing)}); !errors.Is(err, apperr.ErrRepositoryNotFound) {
+	if _, err := sparseDownload(t, &model.Request{Source: parseSource(t, missing)}); !errors.Is(err, apperr.ErrRepositoryNotFound) {
 		t.Errorf("got %v, want ErrRepositoryNotFound", err)
 	}
 }
@@ -243,7 +243,7 @@ func TestSparseCheckoutResolvesTreeLinks(t *testing.T) {
 	for _, tc := range cases {
 		src := parseSource(t, fx.url)
 		src.RefPath = tc.refPath
-		snap, err := sparseDownload(t, model.Request{Source: src})
+		snap, err := sparseDownload(t, &model.Request{Source: src})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.refPath, err)
 		}
@@ -258,7 +258,7 @@ func TestSparseCheckoutResolvesTreeLinks(t *testing.T) {
 
 	src := parseSource(t, fx.url)
 	src.RefPath = "nope/src"
-	_, err := sparseDownload(t, model.Request{Source: src})
+	_, err := sparseDownload(t, &model.Request{Source: src})
 	var appErr *apperr.Error
 	if !errors.As(err, &appErr) || !errors.Is(err, apperr.ErrRefNotFound) || appErr.Hint != `the default branch is "trunk"` {
 		t.Errorf("missing ref in link: got %v (hint %q)", err, appErr.Hint)
@@ -277,7 +277,7 @@ func (noGit) HasGit() bool {
 
 func TestSparseCheckoutNeedsGit(t *testing.T) {
 	_, err := downloader.NewSparseCheckoutDownloader(noGit{}).Download(
-		context.Background(), model.Request{Source: parseSource(t, "owner/repo")}, t.TempDir(), model.Discard{})
+		context.Background(), &model.Request{Source: parseSource(t, "owner/repo")}, t.TempDir(), model.Discard{})
 	if !errors.Is(err, apperr.ErrGitNotInstalled) {
 		t.Errorf("got %v, want ErrGitNotInstalled", err)
 	}
@@ -285,33 +285,33 @@ func TestSparseCheckoutNeedsGit(t *testing.T) {
 
 func TestFactoryPicksTheRequestedMethod(t *testing.T) {
 	for _, m := range []model.Method{model.MethodSparse, model.MethodAPI} {
-		dl, method, err := downloader.GetDownloader(model.Request{Method: m, Source: parseSource(t, "o/r")})
+		dl, method, err := downloader.GetDownloader(&model.Request{Method: m, Source: parseSource(t, "o/r")})
 		if err != nil || dl == nil || method != m {
 			t.Errorf("%s: got %v, %s, %v", m, dl, method, err)
 		}
 	}
-	if _, _, err := downloader.GetDownloader(model.Request{Method: model.MethodAPI, Source: parseSource(t, "gitlab.com/g/p")}); !errors.Is(err, apperr.ErrUnsupported) {
+	if _, _, err := downloader.GetDownloader(&model.Request{Method: model.MethodAPI, Source: parseSource(t, "gitlab.com/g/p")}); !errors.Is(err, apperr.ErrUnsupported) {
 		t.Errorf("api method for gitlab: got %v, want ErrUnsupported", err)
 	}
-	if _, _, err := downloader.GetDownloader(model.Request{Method: "invalid"}); err == nil {
+	if _, _, err := downloader.GetDownloader(&model.Request{Method: "invalid"}); err == nil {
 		t.Error("expected an error for an unknown method")
 	}
 }
 
 func TestFactoryAutoPrefersGitAndFallsBackToTheAPI(t *testing.T) {
 	if gitutil.IsGitInstalled() {
-		_, method, err := downloader.GetDownloader(model.Request{Method: model.MethodAuto, Source: parseSource(t, "gitlab.com/g/p")})
+		_, method, err := downloader.GetDownloader(&model.Request{Method: model.MethodAuto, Source: parseSource(t, "gitlab.com/g/p")})
 		if err != nil || method != model.MethodSparse {
 			t.Errorf("with git: got %s, %v", method, err)
 		}
 	}
 
 	t.Setenv("PATH", "")
-	_, method, err := downloader.GetDownloader(model.Request{Source: parseSource(t, "o/r")})
+	_, method, err := downloader.GetDownloader(&model.Request{Source: parseSource(t, "o/r")})
 	if err != nil || method != model.MethodAPI {
 		t.Errorf("without git on github: got %s, %v", method, err)
 	}
-	if _, _, err := downloader.GetDownloader(model.Request{Source: parseSource(t, "gitlab.com/g/p")}); !errors.Is(err, apperr.ErrGitNotInstalled) {
+	if _, _, err := downloader.GetDownloader(&model.Request{Source: parseSource(t, "gitlab.com/g/p")}); !errors.Is(err, apperr.ErrGitNotInstalled) {
 		t.Errorf("without git elsewhere: got %v, want ErrGitNotInstalled", err)
 	}
 }
