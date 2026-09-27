@@ -1,10 +1,10 @@
 package model
 
-type MethodType string
+type Method string
 
 const (
-	MethodTypeSparse MethodType = "sparse"
-	MethodTypeAPI    MethodType = "api"
+	MethodSparse Method = "sparse"
+	MethodAPI    Method = "api"
 )
 
 type ProviderType string
@@ -13,13 +13,36 @@ const (
 	ProviderTypeGitHub ProviderType = "github"
 )
 
-type DownloadOptions struct {
+type Request struct {
 	RepoURL   string
 	Subdir    string
 	OutputDir string
 	Branch    string
 	Token     string
-	Method    MethodType
+	Method    Method
 	Provider  ProviderType
-	Quiet     bool
 }
+
+type Snapshot struct {
+	Dir string
+	Ref string
+}
+
+type Result struct {
+	Ref    string
+	Output string
+}
+
+type Reporter interface {
+	Stage(text string)
+	Progress(done, total int)
+	Warn(text string)
+	Debug(text string)
+}
+
+type Discard struct{}
+
+func (Discard) Stage(string)      {}
+func (Discard) Progress(int, int) {}
+func (Discard) Warn(string)       {}
+func (Discard) Debug(string)      {}

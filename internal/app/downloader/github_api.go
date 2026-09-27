@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,56 +20,61 @@ type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-const (
-	GitHubAPIBaseURL = "https://api.github.com"
-)
+const GitHubAPIBaseURL = "https://api.github.com"
 
 type GitHubContentItem struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	Type        string `json:"type"`
 	DownloadURL string `json:"download_url"`
-	URL         string `json:"url"`
-}
-
-func NewGitHubAPIDownloader(opts model.DownloadOptions, client HTTPDoer) Downloader {
-	return &gitHubAPIDownloader{
-		opts:    opts,
-		client:  client,
-		baseURL: GitHubAPIBaseURL,
-	}
 }
 
 type gitHubAPIDownloader struct {
-	opts    model.DownloadOptions
 	client  HTTPDoer
 	baseURL string
 }
 
-func (g *gitHubAPIDownloader) Download() error {
-	owner, repo, err := parseGitHubURL(g.opts.RepoURL)
+func NewGitHubAPIDownloader(client HTTPDoer) Downloader {
+	return &gitHubAPIDownloader{client: client, baseURL: GitHubAPIBaseURL}
+}
+
+type apiDownload struct {
+	*gitHubAPIDownloader
+	ctx   context.Context
+	req   model.Request
+	rep   model.Reporter
+	owner string
+	repo  string
+}
+
+func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
+	owner, repo, err := parseGitHubURL(req.RepoURL)
 	if err != nil {
-		return &apperr.Error{
+		return model.Snapshot{}, &apperr.Error{
 			Err:     apperr.ErrInvalidURL,
 			Message: "Invalid GitHub URL format",
 			Hint:    "URL should be in the format: https://github.com/owner/repo",
 		}
 	}
 
-	if !g.opts.Quiet {
-		fmt.Printf("Downloading directory %s from %s/%s (branch: %s)...\n",
-			g.opts.Subdir, owner, repo, g.opts.Branch)
-	}
+	rep.Stage(fmt.Sprintf("Downloading directory %s from %s/%s (branch: %s)...", req.Subdir, owner, repo, req.Branch))
 
-	items, isFile, err := g.getContents(owner, repo, g.opts.Subdir)
+	d := &apiDownload{gitHubAPIDownloader: g, ctx: ctx, req: req, rep: rep, owner: owner, repo: repo}
+	items, isFile, err := d.getContents(req.Subdir)
 	if err != nil {
-		return err
+		return model.Snapshot{}, err
 	}
 
+	target := filepath.Join(dir, filepath.FromSlash(req.Subdir))
 	if isFile {
-		return g.downloadFile(items[0].DownloadURL, g.opts.OutputDir)
+		err = d.downloadFile(items[0].DownloadURL, target)
+	} else {
+		err = d.downloadDirectory(items, target)
 	}
-	return g.downloadDirectory(owner, repo, items, g.opts.OutputDir)
+	if err != nil {
+		return model.Snapshot{}, err
+	}
+	return model.Snapshot{Dir: dir, Ref: req.Branch}, nil
 }
 
 func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
@@ -81,7 +87,7 @@ func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
 	return "", "", fmt.Errorf("URL does not match GitHub repository pattern: %s", repoURL)
 }
 
-func (g *gitHubAPIDownloader) downloadDirectory(owner, repo string, items []GitHubContentItem, outputDir string) error {
+func (d *apiDownload) downloadDirectory(items []GitHubContentItem, outputDir string) error {
 	if err := util.EnsureDir(outputDir); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
@@ -89,20 +95,18 @@ func (g *gitHubAPIDownloader) downloadDirectory(owner, repo string, items []GitH
 	for _, item := range items {
 		targetPath := filepath.Join(outputDir, item.Name)
 
-		if item.Type == "dir" {
-			children, _, err := g.getContents(owner, repo, item.Path)
+		switch item.Type {
+		case "dir":
+			children, _, err := d.getContents(item.Path)
 			if err != nil {
 				return err
 			}
-
-			if err := g.downloadDirectory(owner, repo, children, targetPath); err != nil {
+			if err := d.downloadDirectory(children, targetPath); err != nil {
 				return err
 			}
-		} else if item.Type == "file" {
-			if !g.opts.Quiet {
-				fmt.Printf("Downloading %s\n", item.Path)
-			}
-			if err := g.downloadFile(item.DownloadURL, targetPath); err != nil {
+		case "file":
+			d.rep.Stage("Downloading " + item.Path)
+			if err := d.downloadFile(item.DownloadURL, targetPath); err != nil {
 				return fmt.Errorf("failed to download file %s: %w", item.Path, err)
 			}
 		}
@@ -111,19 +115,17 @@ func (g *gitHubAPIDownloader) downloadDirectory(owner, repo string, items []GitH
 	return nil
 }
 
-func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubContentItem, bool, error) {
-	apiURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s",
-		g.baseURL, owner, repo, url.PathEscape(path))
-
-	if g.opts.Branch != "" {
-		apiURL = fmt.Sprintf("%s?ref=%s", apiURL, url.QueryEscape(g.opts.Branch))
+func (d *apiDownload) getContents(path string) ([]GitHubContentItem, bool, error) {
+	apiURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s", d.baseURL, d.owner, d.repo, url.PathEscape(path))
+	if d.req.Branch != "" {
+		apiURL = fmt.Sprintf("%s?ref=%s", apiURL, url.QueryEscape(d.req.Branch))
 	}
 
-	req, err := util.NewGitHubRequest("GET", apiURL, g.opts.Token)
+	req, err := util.NewGitHubRequest(d.ctx, http.MethodGet, apiURL, d.req.Token)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create request: %w", err)
 	}
-	resp, err := g.client.Do(req)
+	resp, err := d.client.Do(req)
 	if err != nil {
 		return nil, false, &apperr.Error{
 			Err:     apperr.ErrNetworkFailure,
@@ -135,8 +137,7 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubCon
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		bodyStr := strings.TrimSpace(string(body))
-		return nil, false, apperr.ParseGitHubAPIError(resp.StatusCode, bodyStr)
+		return nil, false, apperr.ParseGitHubAPIError(resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var raw json.RawMessage
@@ -159,17 +160,16 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubCon
 	return items, false, nil
 }
 
-func (g *gitHubAPIDownloader) downloadFile(url, outputPath string) error {
-	req, err := http.NewRequest("GET", url, nil)
+func (d *apiDownload) downloadFile(fileURL, outputPath string) error {
+	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-
-	if g.opts.Token != "" {
-		req.Header.Set("Authorization", "token "+g.opts.Token)
+	if d.req.Token != "" {
+		req.Header.Set("Authorization", "token "+d.req.Token)
 	}
 
-	resp, err := g.client.Do(req)
+	resp, err := d.client.Do(req)
 	if err != nil {
 		return &apperr.Error{
 			Err:     apperr.ErrNetworkFailure,
@@ -181,8 +181,7 @@ func (g *gitHubAPIDownloader) downloadFile(url, outputPath string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		bodyStr := strings.TrimSpace(string(body))
-		return apperr.ParseGitHubAPIError(resp.StatusCode, bodyStr)
+		return apperr.ParseGitHubAPIError(resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	return util.SaveToFile(outputPath, resp.Body)

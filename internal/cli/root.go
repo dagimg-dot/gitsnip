@@ -64,15 +64,15 @@ Arguments:
 				provider = "github"
 			}
 
-			methodType := model.MethodTypeSparse
+			methodType := model.MethodSparse
 			if method == "api" {
-				methodType = model.MethodTypeAPI
+				methodType = model.MethodAPI
 			}
 
 			providerType := model.ProviderTypeGitHub
 			// TODO: add other providers when supported
 
-			opts := model.DownloadOptions{
+			req := model.Request{
 				RepoURL:   repoURL,
 				Subdir:    folderPath,
 				OutputDir: outputDir,
@@ -80,7 +80,6 @@ Arguments:
 				Token:     token,
 				Method:    methodType,
 				Provider:  providerType,
-				Quiet:     quiet,
 			}
 
 			if !quiet {
@@ -93,16 +92,31 @@ Arguments:
 				fmt.Println("--------------------------------")
 			}
 
-			err := app.Download(opts)
+			var rep model.Reporter = model.Discard{}
+			if !quiet {
+				rep = linePrinter{}
+			}
+
+			_, err := app.Download(cmd.Context(), req, rep)
 			var appErr *apperr.Error
 			if errors.As(err, &appErr) {
 				cmd.SilenceUsage = true
+			}
+			if err == nil && !quiet {
+				fmt.Println("Download completed successfully.")
 			}
 
 			return err
 		},
 	}
 )
+
+type linePrinter struct{}
+
+func (linePrinter) Stage(text string) { fmt.Println(text) }
+func (linePrinter) Progress(int, int) {}
+func (linePrinter) Warn(text string)  { fmt.Println("Warning: " + text) }
+func (linePrinter) Debug(text string) {}
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main().

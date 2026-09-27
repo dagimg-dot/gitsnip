@@ -9,16 +9,14 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 )
 
-func GetDownloader(opts model.DownloadOptions) (Downloader, error) {
-	switch opts.Method {
-	case model.MethodTypeAPI:
-		switch opts.Provider {
-		case model.ProviderTypeGitHub:
-			client := &http.Client{Timeout: 30 * time.Second}
-			return NewGitHubAPIDownloader(opts, client), nil
+func GetDownloader(req model.Request) (Downloader, error) {
+	switch req.Method {
+	case model.MethodAPI:
+		if req.Provider == model.ProviderTypeGitHub {
+			return NewGitHubAPIDownloader(&http.Client{Timeout: 30 * time.Second}), nil
 		}
-	case model.MethodTypeSparse:
-		return NewSparseCheckoutDownloader(opts, gitutil.RealRunner{}), nil
+	case model.MethodSparse:
+		return NewSparseCheckoutDownloader(gitutil.RealRunner{}), nil
 	}
 	return nil, fmt.Errorf("unsupported provider/method")
 }

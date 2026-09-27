@@ -3,162 +3,93 @@ package downloader
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/dagimg-dot/gitsnip/internal/app/gitutil"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
-	"github.com/dagimg-dot/gitsnip/internal/util"
 )
 
-// gitRunner abstracts git command execution for testability.
 type GitRunner interface {
 	Run(ctx context.Context, dir string, args ...string) (string, error)
 	HasGit() bool
 }
 
 type sparseCheckoutDownloader struct {
-	opts   model.DownloadOptions
 	runner GitRunner
 }
 
-func NewSparseCheckoutDownloader(opts model.DownloadOptions, runner GitRunner) Downloader {
-	return &sparseCheckoutDownloader{opts: opts, runner: runner}
+func NewSparseCheckoutDownloader(runner GitRunner) Downloader {
+	return &sparseCheckoutDownloader{runner: runner}
 }
 
-func (s *sparseCheckoutDownloader) Download() error {
+func (s *sparseCheckoutDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
 	if !s.runner.HasGit() {
-		return &apperr.Error{
+		return model.Snapshot{}, &apperr.Error{
 			Err:     apperr.ErrGitNotInstalled,
 			Message: "Git is not installed on this system",
 			Hint:    "Please install Git to use the sparse checkout method",
 		}
 	}
 
-	if err := util.EnsureDir(s.opts.OutputDir); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
+	if req.Branch == "" {
+		rep.Stage(fmt.Sprintf("Downloading directory %s from %s (default branch) using sparse checkout...", req.Subdir, req.RepoURL))
+	} else {
+		rep.Stage(fmt.Sprintf("Downloading directory %s from %s (branch: %s) using sparse checkout...", req.Subdir, req.RepoURL, req.Branch))
 	}
 
-	if !s.opts.Quiet {
-		if s.opts.Branch == "" {
-			fmt.Printf("Downloading directory %s from %s (default branch) using sparse checkout...\n",
-				s.opts.Subdir, s.opts.RepoURL)
-		} else {
-			fmt.Printf("Downloading directory %s from %s (branch: %s) using sparse checkout...\n",
-				s.opts.Subdir, s.opts.RepoURL, s.opts.Branch)
-		}
-	}
-
-	tempDir, err := gitutil.CreateTempDir()
-	if err != nil {
-		return err
-	}
-	defer gitutil.CleanupTempDir(tempDir)
-
-	repoURL := s.getAuthenticatedRepoURL()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	if err := s.initRepo(ctx, tempDir, repoURL); err != nil {
-		return err
+	git := func(args ...string) error {
+		if _, err := s.runner.Run(ctx, dir, args...); err != nil {
+			return gitFailure(err, req.RepoURL, req.Branch)
+		}
+		return nil
 	}
 
-	if err := s.setupSparseCheckout(ctx, tempDir); err != nil {
-		return err
+	setup := [][]string{
+		{"init"},
+		{"remote", "add", "origin", authenticatedURL(req.RepoURL, req.Token)},
+		{"sparse-checkout", "init", "--cone"},
+		{"sparse-checkout", "set", req.Subdir},
 	}
-
-	if err := s.pullContent(ctx, tempDir); err != nil {
-		return err
-	}
-
-	sparsePath := filepath.Join(tempDir, s.opts.Subdir)
-	if _, err := os.Stat(sparsePath); os.IsNotExist(err) {
-		return &apperr.Error{
-			Err:     apperr.ErrPathNotFound,
-			Message: fmt.Sprintf("Directory '%s' not found in the repository", s.opts.Subdir),
-			Hint:    "Check that the folder path exists in the repository",
+	for _, args := range setup {
+		if err := git(args...); err != nil {
+			return model.Snapshot{}, err
 		}
 	}
 
-	if !s.opts.Quiet {
-		fmt.Printf("Copying files to %s...\n", s.opts.OutputDir)
+	rep.Stage("Downloading content from repository...")
+	fetch := []string{"fetch", "--depth=1", "--no-tags", "origin"}
+	if req.Branch != "" {
+		fetch = append(fetch, req.Branch)
+	}
+	if err := git(fetch...); err != nil {
+		return model.Snapshot{}, err
+	}
+	if err := git("checkout", "FETCH_HEAD"); err != nil {
+		return model.Snapshot{}, err
 	}
 
-	if err := util.CopyDirectory(sparsePath, s.opts.OutputDir); err != nil {
-		return fmt.Errorf("failed to copy directory: %w", err)
-	}
-
-	if !s.opts.Quiet {
-		fmt.Println("Download completed successfully.")
-	}
-	return nil
+	return model.Snapshot{Dir: dir, Ref: req.Branch}, nil
 }
 
-func (s *sparseCheckoutDownloader) getAuthenticatedRepoURL() string {
-	repoURL := s.opts.RepoURL
-
+func authenticatedURL(repoURL, token string) string {
 	if strings.HasPrefix(repoURL, "github.com/") {
 		repoURL = "https://" + repoURL
 	}
 
-	if s.opts.Token == "" {
+	if token == "" {
 		return repoURL
 	}
 
 	if strings.HasPrefix(repoURL, "https://") {
 		parts := strings.SplitN(repoURL[8:], "/", 2)
 		if len(parts) == 2 {
-			return fmt.Sprintf("https://%s@%s/%s", s.opts.Token, parts[0], parts[1])
+			return fmt.Sprintf("https://%s@%s/%s", token, parts[0], parts[1])
 		}
 	}
 
 	return repoURL
-}
-
-func (s *sparseCheckoutDownloader) initRepo(ctx context.Context, dir, repoURL string) error {
-	if _, err := s.runner.Run(ctx, dir, "init"); err != nil {
-		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
-	}
-
-	if _, err := s.runner.Run(ctx, dir, "remote", "add", "origin", repoURL); err != nil {
-		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
-	}
-
-	return nil
-}
-
-func (s *sparseCheckoutDownloader) setupSparseCheckout(ctx context.Context, dir string) error {
-	if _, err := s.runner.Run(ctx, dir, "sparse-checkout", "init", "--cone"); err != nil {
-		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
-	}
-
-	if _, err := s.runner.Run(ctx, dir, "sparse-checkout", "set", s.opts.Subdir); err != nil {
-		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
-	}
-
-	return nil
-}
-
-func (s *sparseCheckoutDownloader) pullContent(ctx context.Context, dir string) error {
-	if !s.opts.Quiet {
-		fmt.Println("Downloading content from repository...")
-	}
-
-	fetchArgs := []string{"fetch", "--depth=1", "--no-tags", "origin"}
-	if s.opts.Branch != "" {
-		fetchArgs = append(fetchArgs, s.opts.Branch)
-	}
-	if _, err := s.runner.Run(ctx, dir, fetchArgs...); err != nil {
-		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
-	}
-
-	if _, err := s.runner.Run(ctx, dir, "checkout", "FETCH_HEAD"); err != nil {
-		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
-	}
-
-	return nil
 }

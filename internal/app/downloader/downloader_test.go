@@ -3,9 +3,13 @@ package downloader_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagimg-dot/gitsnip/internal/app/downloader"
@@ -31,13 +35,10 @@ func (f *fakeGitRunner) Run(ctx context.Context, dir string, args ...string) (st
 		return f.runFunc(ctx, dir, args...)
 	}
 	f.commands = append(f.commands, cmdCall{dir: dir, args: args})
-	if len(args) == 1 && args[0] == "init" {
-		os.MkdirAll(dir, 0755)
-	}
 	if args[0] == "checkout" && f.setupDir != "" {
 		sparsePath := filepath.Join(dir, f.setupDir)
-		os.MkdirAll(sparsePath, 0755)
-		os.WriteFile(filepath.Join(sparsePath, "test.txt"), []byte("content"), 0644)
+		os.MkdirAll(sparsePath, 0o755)
+		os.WriteFile(filepath.Join(sparsePath, "test.txt"), []byte("content"), 0o644)
 	}
 	return "", nil
 }
@@ -46,159 +47,184 @@ func (f *fakeGitRunner) HasGit() bool {
 	return f.hasGit
 }
 
-func TestSparseCheckout_success(t *testing.T) {
+func TestSparseCheckoutFetchesIntoTheGivenDir(t *testing.T) {
 	fake := &fakeGitRunner{hasGit: true, setupDir: "src/lib"}
-	opts := model.DownloadOptions{
-		RepoURL:   "https://github.com/owner/repo",
-		Subdir:    "src/lib",
-		OutputDir: t.TempDir(),
-		Branch:    "main",
-		Quiet:     true,
-	}
-	dl := downloader.NewSparseCheckoutDownloader(opts, fake)
-	if err := dl.Download(); err != nil {
+	dir := t.TempDir()
+	req := model.Request{RepoURL: "https://github.com/owner/repo", Subdir: "src/lib", Branch: "main"}
+
+	snap, err := downloader.NewSparseCheckoutDownloader(fake).Download(context.Background(), req, dir, model.Discard{})
+	if err != nil {
 		t.Fatalf("Download failed: %v", err)
+	}
+	if snap.Dir != dir || snap.Ref != "main" {
+		t.Errorf("snapshot = %+v", snap)
 	}
 
 	expected := []string{"init", "remote", "sparse-checkout", "sparse-checkout", "fetch", "checkout"}
 	var got []string
 	for _, c := range fake.commands {
 		got = append(got, c.args[0])
-	}
-	if len(got) < len(expected) {
-		t.Fatalf("expected at least %d commands, got %d: %v", len(expected), len(got), got)
-	}
-	for i, want := range expected {
-		if got[i] != want {
-			t.Errorf("command %d: expected %q, got %q", i, want, got[i])
+		if c.dir != dir {
+			t.Errorf("git %s ran in %s, want %s", c.args[0], c.dir, dir)
 		}
 	}
+	if strings.Join(got, " ") != strings.Join(expected, " ") {
+		t.Errorf("commands = %v, want %v", got, expected)
+	}
 
-	outFile := filepath.Join(opts.OutputDir, "test.txt")
-	if _, err := os.Stat(outFile); os.IsNotExist(err) {
-		t.Errorf("output file not found: %s", outFile)
+	if _, err := os.Stat(filepath.Join(dir, "src", "lib", "test.txt")); err != nil {
+		t.Errorf("checked out file missing: %v", err)
 	}
 }
 
-func TestSparseCheckout_gitNotInstalled(t *testing.T) {
-	fake := &fakeGitRunner{hasGit: false}
-	dl := downloader.NewSparseCheckoutDownloader(
-		model.DownloadOptions{RepoURL: "https://github.com/owner/repo", Subdir: "src", OutputDir: t.TempDir(), Quiet: true},
-		fake,
-	)
-	err := dl.Download()
-	if err == nil {
-		t.Fatal("expected error")
-	}
+func TestSparseCheckoutNeedsGit(t *testing.T) {
+	_, err := downloader.NewSparseCheckoutDownloader(&fakeGitRunner{}).Download(
+		context.Background(), model.Request{RepoURL: "https://github.com/owner/repo", Subdir: "src"}, t.TempDir(), model.Discard{})
 	if !errors.Is(err, apperr.ErrGitNotInstalled) {
-		t.Errorf("expected ErrGitNotInstalled, got %v", err)
+		t.Errorf("got %v, want ErrGitNotInstalled", err)
 	}
 }
 
-func TestSparseCheckout_pathNotFound(t *testing.T) {
-	fake := &fakeGitRunner{hasGit: true, setupDir: ""}
-	dl := downloader.NewSparseCheckoutDownloader(
-		model.DownloadOptions{RepoURL: "https://github.com/owner/repo", Subdir: "nonexistent", OutputDir: t.TempDir(), Branch: "main", Quiet: true},
-		fake,
-	)
-	err := dl.Download()
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !errors.Is(err, apperr.ErrPathNotFound) {
-		t.Errorf("expected ErrPathNotFound, got %v", err)
-	}
-}
-
-func TestSparseCheckout_runnerError(t *testing.T) {
+func TestSparseCheckoutStopsOnGitFailure(t *testing.T) {
 	fake := &fakeGitRunner{hasGit: true}
 	fake.runFunc = func(ctx context.Context, dir string, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "fetch" {
+		if args[0] == "fetch" {
 			return "", context.DeadlineExceeded
-		}
-		if len(args) == 1 && args[0] == "init" {
-			os.MkdirAll(dir, 0755)
 		}
 		return "", nil
 	}
-	dl := downloader.NewSparseCheckoutDownloader(
-		model.DownloadOptions{RepoURL: "https://github.com/owner/repo", Subdir: "src", OutputDir: t.TempDir(), Branch: "main", Quiet: true},
-		fake,
-	)
-	if err := dl.Download(); err == nil {
-		t.Fatal("expected error on fetch failure")
+	_, err := downloader.NewSparseCheckoutDownloader(fake).Download(
+		context.Background(), model.Request{RepoURL: "https://github.com/owner/repo", Subdir: "src", Branch: "main"}, t.TempDir(), model.Discard{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("got %v, want the fetch error", err)
 	}
 }
 
-func TestSparseCheckout_commandsInOrder(t *testing.T) {
+func TestSparseCheckoutFetchesTheRequestedBranch(t *testing.T) {
 	fake := &fakeGitRunner{hasGit: true, setupDir: "src"}
-	dl := downloader.NewSparseCheckoutDownloader(
-		model.DownloadOptions{
-			RepoURL: "https://github.com/owner/repo", Subdir: "src",
-			OutputDir: t.TempDir(), Branch: "develop", Quiet: true,
-		},
-		fake,
-	)
-	if err := dl.Download(); err != nil {
+	_, err := downloader.NewSparseCheckoutDownloader(fake).Download(
+		context.Background(), model.Request{RepoURL: "https://github.com/owner/repo", Subdir: "src", Branch: "develop"}, t.TempDir(), model.Discard{})
+	if err != nil {
 		t.Fatalf("Download failed: %v", err)
 	}
-
-	hasBranchFetch := false
 	for _, c := range fake.commands {
-		if c.args[0] == "fetch" {
-			for _, a := range c.args {
-				if a == "develop" {
-					hasBranchFetch = true
-				}
-			}
+		if c.args[0] == "fetch" && c.args[len(c.args)-1] == "develop" {
+			return
 		}
 	}
-	if !hasBranchFetch {
-		t.Error("expected fetch to include branch name 'develop'")
+	t.Error("expected fetch to include branch name 'develop'")
+}
+
+type redirectDoer struct {
+	target *url.URL
+}
+
+func (d redirectDoer) Do(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.URL.Scheme, req.URL.Host, req.Host = d.target.Scheme, d.target.Host, ""
+	return http.DefaultClient.Do(req)
+}
+
+func fakeGitHub(t *testing.T) downloader.HTTPDoer {
+	t.Helper()
+	item := func(name, path, typ string) string {
+		dl := "null"
+		if typ == "file" {
+			dl = fmt.Sprintf("%q", "https://raw.githubusercontent.com/o/r/main/"+path)
+		}
+		return fmt.Sprintf(`{"name":%q,"path":%q,"type":%q,"download_url":%s}`, name, path, typ, dl)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/o/r/contents/", func(w http.ResponseWriter, r *http.Request) {
+		switch strings.TrimPrefix(r.URL.Path, "/repos/o/r/contents/") {
+		case "src":
+			fmt.Fprintf(w, "[%s,%s]", item("a.txt", "src/a.txt", "file"), item("sub", "src/sub", "dir"))
+		case "src/sub":
+			fmt.Fprintf(w, "[%s]", item("b.txt", "src/sub/b.txt", "file"))
+		case "src/a.txt":
+			fmt.Fprint(w, item("a.txt", "src/a.txt", "file"))
+		case "broken":
+			fmt.Fprint(w, "<html>upstream error</html>")
+		default:
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		}
+	})
+	mux.HandleFunc("/o/r/main/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "content of "+strings.TrimPrefix(r.URL.Path, "/o/r/main/"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	target, _ := url.Parse(srv.URL)
+	return redirectDoer{target: target}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestGitHubAPIDownloadsNestedFolders(t *testing.T) {
+	dir := t.TempDir()
+	req := model.Request{RepoURL: "https://github.com/o/r", Subdir: "src", Branch: "main"}
+	if _, err := downloader.NewGitHubAPIDownloader(fakeGitHub(t)).Download(context.Background(), req, dir, model.Discard{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(dir, "src", "a.txt")); got != "content of src/a.txt" {
+		t.Errorf("a.txt = %q", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "src", "sub", "b.txt")); got != "content of src/sub/b.txt" {
+		t.Errorf("sub/b.txt = %q", got)
 	}
 }
 
-func TestGitHubAPI_download_usesHTTPDoer(t *testing.T) {
-	opts := model.DownloadOptions{
-		RepoURL: "https://github.com/owner/repo", Subdir: "src",
-		OutputDir: t.TempDir(), Quiet: true,
+func TestGitHubAPIDownloadsASingleFile(t *testing.T) {
+	dir := t.TempDir()
+	req := model.Request{RepoURL: "https://github.com/o/r", Subdir: "src/a.txt", Branch: "main"}
+	if _, err := downloader.NewGitHubAPIDownloader(fakeGitHub(t)).Download(context.Background(), req, dir, model.Discard{}); err != nil {
+		t.Fatal(err)
 	}
-	dl := downloader.NewGitHubAPIDownloader(opts, &http.Client{})
-	if dl == nil {
-		t.Fatal("expected non-nil downloader")
+	if got := readFile(t, filepath.Join(dir, "src", "a.txt")); got != "content of src/a.txt" {
+		t.Errorf("a.txt = %q", got)
+	}
+}
+
+func TestGitHubAPIRejectsMalformedResponses(t *testing.T) {
+	req := model.Request{RepoURL: "https://github.com/o/r", Subdir: "broken", Branch: "main"}
+	_, err := downloader.NewGitHubAPIDownloader(fakeGitHub(t)).Download(context.Background(), req, t.TempDir(), model.Discard{})
+	if err == nil || !strings.Contains(err.Error(), "failed to parse API response") {
+		t.Errorf("got %v, want a parse error", err)
+	}
+}
+
+func TestGitHubAPIReportsMissingPaths(t *testing.T) {
+	req := model.Request{RepoURL: "https://github.com/o/r", Subdir: "nope", Branch: "main"}
+	_, err := downloader.NewGitHubAPIDownloader(fakeGitHub(t)).Download(context.Background(), req, t.TempDir(), model.Discard{})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.StatusCode != http.StatusNotFound {
+		t.Errorf("got %v, want a 404 app error", err)
 	}
 }
 
 func TestFactory_sparse(t *testing.T) {
-	dl, err := downloader.GetDownloader(model.DownloadOptions{
-		Method: model.MethodTypeSparse, OutputDir: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if dl == nil {
-		t.Fatal("expected non-nil downloader")
+	dl, err := downloader.GetDownloader(model.Request{Method: model.MethodSparse})
+	if err != nil || dl == nil {
+		t.Fatalf("got %v, %v", dl, err)
 	}
 }
 
 func TestFactory_api(t *testing.T) {
-	dl, err := downloader.GetDownloader(model.DownloadOptions{
-		Method: model.MethodTypeAPI, Provider: model.ProviderTypeGitHub,
-		OutputDir: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if dl == nil {
-		t.Fatal("expected non-nil downloader")
+	dl, err := downloader.GetDownloader(model.Request{Method: model.MethodAPI, Provider: model.ProviderTypeGitHub})
+	if err != nil || dl == nil {
+		t.Fatalf("got %v, %v", dl, err)
 	}
 }
 
 func TestFactory_invalid(t *testing.T) {
-	_, err := downloader.GetDownloader(model.DownloadOptions{
-		Method: "invalid",
-	})
-	if err == nil {
+	if _, err := downloader.GetDownloader(model.Request{Method: "invalid"}); err == nil {
 		t.Fatal("expected error for invalid method")
 	}
 }

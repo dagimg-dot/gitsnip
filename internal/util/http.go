@@ -1,13 +1,14 @@
 package util
 
 import (
+	"context"
 	"net/http"
 )
 
 const UserAgent = "GitSnip/1.0"
 
-func NewGitHubRequest(method, url string, token string) (*http.Request, error) {
-	req, err := http.NewRequest(method, url, nil)
+func NewGitHubRequest(ctx context.Context, method, url string, token string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return nil, err
 	}
