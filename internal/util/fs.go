@@ -1,8 +1,10 @@
 package util
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,7 +117,12 @@ func report(skip SkipFunc, rel, reason string) {
 
 func removeIfNotDir(path string) error {
 	info, err := os.Lstat(path)
-	if err != nil || info.IsDir() {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("failed to inspect %s: %w", path, err)
+	case info.IsDir():
 		return nil
 	}
 	if err := os.Remove(path); err != nil {
