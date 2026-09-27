@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,21 +65,14 @@ type tree struct {
 }
 
 func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
-	owner, repo, err := parseGitHubURL(req.RepoURL)
-	if err != nil {
-		return model.Snapshot{}, apperr.Wrap(apperr.ErrInvalidURL, err,
-			"The api method only works with github.com repositories", "use --method sparse for other hosts")
+	if !req.Source.GitHub() {
+		return model.Snapshot{}, apperr.Wrap(apperr.ErrUnsupported, nil,
+			"The api method only works with github.com", "use --method sparse for other hosts")
 	}
-	c := &githubClient{doer: g.client, apiURL: g.apiURL, rawURL: g.rawURL, token: req.Token, owner: owner, repo: repo, rep: rep}
+	c := &githubClient{doer: g.client, apiURL: g.apiURL, rawURL: g.rawURL, token: req.Token, owner: req.Source.Owner, repo: req.Source.Repo, rep: rep}
 
 	rep.Stage("resolving the branch")
-	ref := req.Ref
-	if ref == "" {
-		if ref, err = c.defaultBranch(ctx); err != nil {
-			return model.Snapshot{}, err
-		}
-	}
-	sha, err := c.commit(ctx, ref)
+	ref, sha, paths, err := c.resolve(ctx, req)
 	if err != nil {
 		return model.Snapshot{}, err
 	}
@@ -95,7 +87,7 @@ func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, d
 			fmt.Sprintf("%s is too large for the api method", c.slug()), "use --method sparse")
 	}
 
-	files, submodules := pick(t.Entries, req.Paths)
+	files, submodules := pick(t.Entries, paths)
 	for _, path := range submodules {
 		rep.Warn(fmt.Sprintf("skipped submodule %s (submodules aren't downloaded)", path))
 	}
@@ -103,17 +95,35 @@ func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, d
 		return model.Snapshot{}, err
 	}
 
-	return model.Snapshot{Dir: dir, Ref: ref, Commit: sha}, nil
+	return model.Snapshot{Dir: dir, Ref: ref, Commit: sha, Paths: paths}, nil
 }
 
-func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
-	pattern := regexp.MustCompile(`github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?/?$`)
-	matches := pattern.FindStringSubmatch(repoURL)
-	if matches != nil && len(matches) >= 3 {
-		return matches[1], matches[2], nil
+func (c *githubClient) resolve(ctx context.Context, req model.Request) (string, string, []pathspec.Pattern, error) {
+	if req.Source.RefPath == "" {
+		ref := req.Ref
+		if ref == "" {
+			var err error
+			if ref, err = c.defaultBranch(ctx); err != nil {
+				return "", "", nil, err
+			}
+		}
+		sha, err := c.commit(ctx, ref)
+		return ref, sha, req.Paths, err
 	}
 
-	return "", "", fmt.Errorf("URL does not match GitHub repository pattern: %s", repoURL)
+	segs := strings.Split(req.Source.RefPath, "/")
+	for i := 1; i <= len(segs); i++ {
+		ref := strings.Join(segs[:i], "/")
+		sha, found, err := c.lookupCommit(ctx, ref)
+		if err != nil {
+			return "", "", nil, err
+		}
+		if found {
+			paths, err := withPath(req.Paths, strings.Join(segs[i:], "/"))
+			return ref, sha, paths, err
+		}
+	}
+	return "", "", nil, c.missingRef(ctx, segs[0])
 }
 
 func pick(entries []treeEntry, paths []pathspec.Pattern) (files []treeEntry, submodules []string) {
@@ -258,9 +268,17 @@ func (c *githubClient) defaultBranch(ctx context.Context) (string, error) {
 }
 
 func (c *githubClient) commit(ctx context.Context, ref string) (string, error) {
+	sha, found, err := c.lookupCommit(ctx, ref)
+	if err != nil || found {
+		return sha, err
+	}
+	return "", c.missingRef(ctx, ref)
+}
+
+func (c *githubClient) lookupCommit(ctx context.Context, ref string) (string, bool, error) {
 	resp, err := c.get(ctx, fmt.Sprintf("%s/repos/%s/commits/%s", c.apiURL, c.escapedSlug(), escapePath(ref)), "application/vnd.github.sha")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer resp.Body.Close()
 
@@ -268,22 +286,26 @@ func (c *githubClient) commit(ctx context.Context, ref string) (string, error) {
 	case http.StatusOK:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
 		if err != nil {
-			return "", fmt.Errorf("failed to read the commit: %w", err)
+			return "", false, fmt.Errorf("failed to read the commit: %w", err)
 		}
-		return strings.TrimSpace(string(body)), nil
+		return strings.TrimSpace(string(body)), true, nil
 	case http.StatusNotFound, http.StatusUnprocessableEntity:
-		branch, err := c.defaultBranch(ctx)
-		if err != nil {
-			return "", err
-		}
-		missing := apperr.Wrap(apperr.ErrRefNotFound, nil, fmt.Sprintf("Branch or tag %q doesn't exist in %s", ref, c.slug()), "")
-		if branch != ref {
-			missing.Hint = fmt.Sprintf("the default branch is %q", branch)
-		}
-		return "", missing
+		return "", false, nil
 	default:
-		return "", c.failure(resp)
+		return "", false, c.failure(resp)
 	}
+}
+
+func (c *githubClient) missingRef(ctx context.Context, ref string) error {
+	branch, err := c.defaultBranch(ctx)
+	if err != nil {
+		return err
+	}
+	missing := apperr.Wrap(apperr.ErrRefNotFound, nil, fmt.Sprintf("Branch or tag %q doesn't exist in %s", ref, c.slug()), "")
+	if branch != ref {
+		missing.Hint = fmt.Sprintf("the default branch is %q", branch)
+	}
+	return missing
 }
 
 func (c *githubClient) tree(ctx context.Context, sha string) (tree, error) {

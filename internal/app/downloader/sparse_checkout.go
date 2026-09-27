@@ -42,14 +42,26 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req model.Reque
 			"Git isn't installed", "install git, or use --method api for GitHub repositories")
 	}
 
-	remote := remoteURL(req.RepoURL)
-	g := &gitSession{runner: s.runner, rep: rep, env: authEnv(remote, req.Token), url: remote, repo: req.RepoURL, ref: req.Ref}
+	g := &gitSession{runner: s.runner, rep: rep, env: authEnv(req.Source.URL, req.Token), url: req.Source.URL, repo: req.Source.Display(), ref: req.Ref}
 	repoDir := filepath.Join(dir, "repo")
+
+	paths := req.Paths
+	if req.Source.RefPath != "" {
+		rep.Stage("resolving the branch")
+		ref, rest, err := g.splitRefPath(ctx, req.Source.RefPath)
+		if err != nil {
+			return model.Snapshot{}, err
+		}
+		g.ref = ref
+		if paths, err = withPath(paths, rest); err != nil {
+			return model.Snapshot{}, err
+		}
+	}
 
 	rep.Stage("cloning")
 	rev := "HEAD"
 	var err error
-	if isCommitID(req.Ref) {
+	if isCommitID(g.ref) {
 		rev = "FETCH_HEAD"
 		err = g.fetchCommit(ctx, repoDir)
 	} else {
@@ -59,13 +71,13 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req model.Reque
 		return model.Snapshot{}, g.failure(ctx, err)
 	}
 
-	if rules := sparseRules(req.Paths); rules != nil {
+	if rules := sparseRules(paths); rules != nil {
 		if err := g.restrict(ctx, repoDir, rules); err != nil {
 			return model.Snapshot{}, err
 		}
 	}
 
-	rep.Stage("fetching " + describePaths(req.Paths))
+	rep.Stage("fetching " + describePaths(paths))
 	if _, err := g.run(ctx, repoDir, "read-tree", "-mu", rev); err != nil {
 		return model.Snapshot{}, g.failure(ctx, err)
 	}
@@ -75,14 +87,66 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req model.Reque
 		return model.Snapshot{}, g.failure(ctx, err)
 	}
 
-	ref := req.Ref
+	ref := g.ref
 	if ref == "" {
 		if name, err := g.run(ctx, repoDir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
 			ref = strings.TrimSpace(name)
 		}
 	}
 
-	return model.Snapshot{Dir: repoDir, Ref: ref, Commit: strings.TrimSpace(commit)}, nil
+	return model.Snapshot{Dir: repoDir, Ref: ref, Commit: strings.TrimSpace(commit), Paths: paths}, nil
+}
+
+func (g *gitSession) splitRefPath(ctx context.Context, refPath string) (string, string, error) {
+	segs := strings.Split(refPath, "/")
+	candidates := make([]string, len(segs))
+	for i := range segs {
+		candidates[i] = strings.Join(segs[:i+1], "/")
+	}
+
+	out, err := g.run(ctx, "", append([]string{"ls-remote", "--", g.url}, candidates...)...)
+	if err != nil {
+		return "", "", g.failure(ctx, err)
+	}
+	refs := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		name := strings.TrimSuffix(fields[1], "^{}")
+		for _, prefix := range []string{"refs/heads/", "refs/tags/"} {
+			if strings.HasPrefix(name, prefix) {
+				refs[strings.TrimPrefix(name, prefix)] = true
+			}
+		}
+	}
+
+	for i := len(candidates) - 1; i >= 0; i-- {
+		if refs[candidates[i]] {
+			return candidates[i], strings.Join(segs[i+1:], "/"), nil
+		}
+	}
+	if isCommitID(segs[0]) {
+		return segs[0], strings.Join(segs[1:], "/"), nil
+	}
+
+	missing := apperr.Wrap(apperr.ErrRefNotFound, nil, fmt.Sprintf("Branch or tag %q doesn't exist in %s", segs[0], g.repo), "")
+	if branch := g.defaultBranch(ctx); branch != "" {
+		missing.Hint = fmt.Sprintf("the default branch is %q", branch)
+	}
+	return "", "", missing
+}
+
+func withPath(paths []pathspec.Pattern, extra string) ([]pathspec.Pattern, error) {
+	if extra == "" {
+		return paths, nil
+	}
+	p, err := pathspec.Parse(extra)
+	if err != nil {
+		return nil, apperr.Wrap(apperr.ErrInvalidURL, err, err.Error(), "")
+	}
+	return append(append([]pathspec.Pattern{}, paths...), p), nil
 }
 
 func (g *gitSession) run(ctx context.Context, dir string, args ...string) (string, error) {
@@ -199,11 +263,4 @@ func describePaths(paths []pathspec.Pattern) string {
 	default:
 		return fmt.Sprintf("%d paths", len(paths))
 	}
-}
-
-func remoteURL(raw string) string {
-	if strings.HasPrefix(raw, "github.com/") {
-		return "https://" + raw
-	}
-	return raw
 }

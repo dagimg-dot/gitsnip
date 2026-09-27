@@ -1,6 +1,9 @@
 package model
 
-import "github.com/dagimg-dot/gitsnip/internal/pathspec"
+import (
+	"github.com/dagimg-dot/gitsnip/internal/pathspec"
+	"github.com/dagimg-dot/gitsnip/internal/source"
+)
 
 type Method string
 
@@ -9,26 +12,20 @@ const (
 	MethodAPI    Method = "api"
 )
 
-type ProviderType string
-
-const (
-	ProviderTypeGitHub ProviderType = "github"
-)
-
 type Request struct {
-	RepoURL  string
-	Ref      string
-	Paths    []pathspec.Pattern
-	Output   string
-	Token    string
-	Method   Method
-	Provider ProviderType
+	Source source.Source
+	Ref    string
+	Paths  []pathspec.Pattern
+	Output string
+	Token  string
+	Method Method
 }
 
 type Snapshot struct {
 	Dir    string
 	Ref    string
 	Commit string
+	Paths  []pathspec.Pattern
 }
 
 type Result struct {

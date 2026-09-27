@@ -12,9 +12,11 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
 	"github.com/dagimg-dot/gitsnip/internal/pathspec"
+	"github.com/dagimg-dot/gitsnip/internal/source"
 )
 
 type fakeDownloader struct {
+	paths    []pathspec.Pattern
 	files    map[string]string
 	links    map[string]string
 	unusable []string
@@ -46,7 +48,7 @@ func (f *fakeDownloader) Download(ctx context.Context, req model.Request, dir st
 			return model.Snapshot{}, err
 		}
 	}
-	return model.Snapshot{Dir: dir, Ref: "main", Commit: "abc123"}, nil
+	return model.Snapshot{Dir: dir, Ref: "main", Commit: "abc123", Paths: f.paths}, nil
 }
 
 type recorder struct {
@@ -148,7 +150,7 @@ func TestRunKeepsStructureBelowTheCommonParent(t *testing.T) {
 func TestRunNamesAWholeRepositoryAfterIt(t *testing.T) {
 	inTempDir(t)
 	res, err := run(context.Background(), &fakeDownloader{files: repoFiles},
-		model.Request{RepoURL: "https://github.com/o/snipped.git"}, model.Discard{})
+		model.Request{Source: source.Source{Repo: "snipped"}}, model.Discard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,4 +270,16 @@ func TestRunNeverCopiesThroughSymlinks(t *testing.T) {
 			t.Errorf("warnings = %q", rec.warnings)
 		}
 	})
+}
+
+func TestRunUsesThePathsTheDownloaderResolved(t *testing.T) {
+	inTempDir(t)
+	dl := &fakeDownloader{files: repoFiles, paths: patterns(t, "src/lib")}
+	res, err := run(context.Background(), dl, model.Request{}, model.Discard{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "lib" || res.Files != 2 || res.Paths[0].String() != "src/lib" {
+		t.Errorf("result = %+v", res)
+	}
 }

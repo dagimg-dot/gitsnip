@@ -34,14 +34,19 @@ func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep m
 		return model.Result{}, fmt.Errorf("failed to read the downloaded files: %w", err)
 	}
 
-	sel, err := selectFiles(req.Paths, files)
+	paths := snap.Paths
+	if paths == nil {
+		paths = req.Paths
+	}
+
+	sel, err := selectFiles(paths, files)
 	if err != nil {
 		return model.Result{}, err
 	}
 
 	output := req.Output
 	if output == "" {
-		output = defaultOutput(sel, req.RepoURL)
+		output = defaultOutput(sel, req.Source.Repo)
 	}
 
 	rep.Stage(fmt.Sprintf("writing %d files", len(sel.files)))
@@ -53,7 +58,7 @@ func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep m
 	return model.Result{
 		Ref:    snap.Ref,
 		Commit: snap.Commit,
-		Paths:  req.Paths,
+		Paths:  paths,
 		Output: output,
 		Files:  written,
 		Bytes:  size,

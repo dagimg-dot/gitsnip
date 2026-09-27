@@ -94,24 +94,17 @@ func missing(p pathspec.Pattern) error {
 	}
 }
 
-func defaultOutput(sel selection, repoURL string) string {
+func defaultOutput(sel selection, repo string) string {
 	switch {
 	case sel.single:
 		return "."
 	case sel.base != "":
 		return path.Base(sel.base)
+	case repo != "":
+		return repo
 	default:
-		return repoName(repoURL)
-	}
-}
-
-func repoName(repoURL string) string {
-	name := path.Base(strings.TrimRight(strings.ReplaceAll(repoURL, ":", "/"), "/"))
-	name = strings.TrimSuffix(name, ".git")
-	if name == "" || name == "." || name == "/" {
 		return "snip"
 	}
-	return name
 }
 
 func writeFiles(ctx context.Context, root string, sel selection, output string, rep model.Reporter) (int, int64, error) {

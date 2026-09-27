@@ -167,8 +167,8 @@ func (e *events) Warn(text string) {
 func apiDownload(t *testing.T, hub *fakeHub, req model.Request) (string, model.Snapshot, *events, error) {
 	t.Helper()
 	dir := t.TempDir()
-	if req.RepoURL == "" {
-		req.RepoURL = "https://github.com/o/r"
+	if req.Source.Repo == "" {
+		req.Source = parseSource(t, "https://github.com/o/r")
 	}
 	ev := &events{}
 	snap, err := downloader.NewGitHubAPIDownloader(hub.serve(t)).Download(context.Background(), req, dir, ev)
@@ -253,7 +253,7 @@ func TestGitHubAPIPointsAtTheDefaultBranchWhenTheRefIsMissing(t *testing.T) {
 }
 
 func TestGitHubAPIReportsMissingRepositories(t *testing.T) {
-	_, _, _, err := apiDownload(t, newHub(), model.Request{RepoURL: "https://github.com/x/y"})
+	_, _, _, err := apiDownload(t, newHub(), model.Request{Source: parseSource(t, "x/y")})
 	if !errors.Is(err, apperr.ErrRepositoryNotFound) || err.Error() != "Repository x/y doesn't exist or is private" {
 		t.Errorf("got %v, want ErrRepositoryNotFound", err)
 	}
@@ -313,5 +313,24 @@ func TestGitHubAPIDownloadsManyFilesConcurrently(t *testing.T) {
 	}
 	if ev.done != 40 || ev.total != 40 {
 		t.Errorf("progress = %d/%d, want 40/40", ev.done, ev.total)
+	}
+}
+
+func TestGitHubAPIResolvesTreeLinks(t *testing.T) {
+	src := parseSource(t, "https://github.com/o/r/tree/v1/src/sub")
+	dir, snap, _, err := apiDownload(t, newHub(), model.Request{Source: src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Ref != "v1" || snap.Commit != shaV1 || len(snap.Paths) != 1 || snap.Paths[0].String() != "src/sub" {
+		t.Errorf("snapshot = %+v", snap)
+	}
+	if got := strings.Join(checkedOut(t, dir), " "); got != "src/sub/b.txt" {
+		t.Errorf("downloaded %s", got)
+	}
+
+	src = parseSource(t, "https://github.com/o/r/tree/nope/src")
+	if _, _, _, err := apiDownload(t, newHub(), model.Request{Source: src}); !errors.Is(err, apperr.ErrRefNotFound) {
+		t.Errorf("missing ref in link: got %v", err)
 	}
 }

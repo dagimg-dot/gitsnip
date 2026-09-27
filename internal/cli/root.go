@@ -3,12 +3,13 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
+	"strings"
 
 	"github.com/dagimg-dot/gitsnip/internal/app"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
 	"github.com/dagimg-dot/gitsnip/internal/pathspec"
+	"github.com/dagimg-dot/gitsnip/internal/source"
 	"github.com/spf13/cobra"
 )
 
@@ -44,26 +45,36 @@ Arguments:
 				return nil
 			}
 
-			if len(args) < 2 {
-				return fmt.Errorf("requires at least repository_url and folder_path arguments")
+			src, err := source.Parse(args[0])
+			if err != nil {
+				return apperr.Wrap(apperr.ErrInvalidURL, err, err.Error(), "use owner/repo, a GitHub or GitLab link, or a git URL")
 			}
 
-			repoURL := args[0]
-			folderPath := args[1]
-			patterns, err := pathspec.ParseAll([]string{folderPath})
+			var raws []string
+			if src.Path != "" {
+				raws = append(raws, src.Path)
+			}
+			if len(args) >= 2 {
+				raws = append(raws, args[1])
+			}
+			patterns, err := pathspec.ParseAll(raws)
 			if err != nil {
 				return err
 			}
 
 			output := ""
-			outputDir := filepath.Base(folderPath)
+			outputDir := "(automatic)"
 			if len(args) == 3 {
 				output = args[2]
 				outputDir = output
 			}
 
-			if provider == "" {
-				provider = "github"
+			ref := branch
+			switch {
+			case ref == "":
+				ref = src.Ref
+			case src.RefPath != "" || (src.Ref != "" && src.Ref != ref):
+				return fmt.Errorf("the source already names a branch; drop -b")
 			}
 
 			methodType := model.MethodSparse
@@ -71,22 +82,18 @@ Arguments:
 				methodType = model.MethodAPI
 			}
 
-			providerType := model.ProviderTypeGitHub
-			// TODO: add other providers when supported
-
 			req := model.Request{
-				RepoURL:  repoURL,
-				Ref:      branch,
-				Paths:    patterns,
-				Output:   output,
-				Token:    token,
-				Method:   methodType,
-				Provider: providerType,
+				Source: src,
+				Ref:    ref,
+				Paths:  patterns,
+				Output: output,
+				Token:  token,
+				Method: methodType,
 			}
 
 			if !quiet {
-				fmt.Printf("Repository URL: %s\n", repoURL)
-				fmt.Printf("Folder Path:    %s\n", folderPath)
+				fmt.Printf("Repository URL: %s\n", src.URL)
+				fmt.Printf("Folder Path:    %s\n", strings.Join(raws, ", "))
 				shownBranch := branch
 				if shownBranch == "" {
 					shownBranch = "(default)"
@@ -94,7 +101,6 @@ Arguments:
 				fmt.Printf("Target Branch:  %s\n", shownBranch)
 				fmt.Printf("Download Method: %s\n", method)
 				fmt.Printf("Output Dir:     %s\n", outputDir)
-				fmt.Printf("Provider:       %s\n", provider)
 				fmt.Println("--------------------------------")
 			}
 
