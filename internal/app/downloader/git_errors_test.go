@@ -29,6 +29,7 @@ func TestGitFailureClassifiesStderr(t *testing.T) {
 		{"rejected ssh key", "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.", apperr.ErrAuthenticationRequired},
 		{"unknown ssh host", "Host key verification failed.\nfatal: Could not read from remote repository.", apperr.ErrAuthenticationRequired},
 		{"dns failure", "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com", apperr.ErrNetworkFailure},
+		{"stalled transfer", "fatal: unable to access 'https://github.com/o/r/': Operation too slow. Less than 1000 bytes/sec transferred the last 60 seconds", apperr.ErrNetworkFailure},
 		{"anything else", "error: something odd happened", apperr.ErrGitCommandFailed},
 	}
 	for _, tc := range cases {

@@ -37,7 +37,7 @@ func redact(s string) string {
 func RunGitCommand(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), env...)
+	cmd.Env = append(baseEnv(), env...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -47,6 +47,14 @@ func RunGitCommand(ctx context.Context, dir string, env []string, args ...string
 		return "", &Error{Args: args, Stderr: strings.TrimSpace(stderr.String()), Err: err}
 	}
 	return stdout.String(), nil
+}
+
+func baseEnv() []string {
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	if os.Getenv("GIT_HTTP_LOW_SPEED_LIMIT") == "" && os.Getenv("GIT_HTTP_LOW_SPEED_TIME") == "" {
+		env = append(env, "GIT_HTTP_LOW_SPEED_LIMIT=1000", "GIT_HTTP_LOW_SPEED_TIME=60")
+	}
+	return env
 }
 
 func IsGitInstalled() bool {

@@ -32,20 +32,22 @@ func TestRunGitCommandCapturesStderr(t *testing.T) {
 	}
 }
 
-func TestRunGitCommandIsNonInteractiveAndEnglish(t *testing.T) {
+func TestRunGitCommandIsNonInteractiveEnglishAndStallAware(t *testing.T) {
 	requireGit(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("relies on a POSIX shell alias")
 	}
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
 	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	t.Setenv("GIT_HTTP_LOW_SPEED_LIMIT", "")
+	t.Setenv("GIT_HTTP_LOW_SPEED_TIME", "")
 	out, err := gitutil.RunGitCommand(context.Background(), t.TempDir(), nil,
-		"-c", `alias.env=!printf '%s %s' "$GIT_TERMINAL_PROMPT" "$LC_ALL"`, "env")
+		"-c", `alias.env=!printf '%s %s %s/%s' "$GIT_TERMINAL_PROMPT" "$LC_ALL" "$GIT_HTTP_LOW_SPEED_LIMIT" "$GIT_HTTP_LOW_SPEED_TIME"`, "env")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "0 C" {
-		t.Errorf("git saw GIT_TERMINAL_PROMPT and LC_ALL as %q, want %q", out, "0 C")
+	if want := "0 C 1000/60"; out != want {
+		t.Errorf("git saw %q, want %q", out, want)
 	}
 }
 

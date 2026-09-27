@@ -47,7 +47,7 @@ func gitFailure(err error, repo, ref string) error {
 		return apperr.Wrap(apperr.ErrAuthenticationRequired, err,
 			fmt.Sprintf("Access to %s was denied", repo),
 			"check that your token or SSH key can read this repository")
-	case mentions("could not resolve host", "failed to connect", "connection timed out", "connection refused", "network is unreachable", "operation timed out"):
+	case mentions("could not resolve host", "failed to connect", "connection timed out", "connection refused", "network is unreachable", "operation timed out", "operation too slow"):
 		return apperr.Wrap(apperr.ErrNetworkFailure, err,
 			fmt.Sprintf("Couldn't reach %s", hostOf(repo)),
 			"check your connection and try again")
