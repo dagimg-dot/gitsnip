@@ -1,4 +1,4 @@
-package tests
+package util_test
 
 import (
 	"os"
@@ -62,8 +62,8 @@ func TestCopyDirectory(t *testing.T) {
 	dst := t.TempDir()
 
 	files := map[string]string{
-		"root.txt":           "root",
-		"sub/file.txt":       "sub",
+		"root.txt":            "root",
+		"sub/file.txt":        "sub",
 		"sub/nested/deep.txt": "deep",
 	}
 	for path, content := range files {

@@ -48,11 +48,11 @@ lint:
 
 test:
 	@echo "Running tests..."
-	go test $(GOFLAGS) $(TEST_FLAGS) ./tests/
+	go test $(GOFLAGS) $(TEST_FLAGS) ./...
 
 test-v:
 	@echo "Running tests (verbose)..."
-	go test $(GOFLAGS) -v ./tests/
+	go test $(GOFLAGS) -v ./...
 
 release:
 	@echo "Bumping version..."

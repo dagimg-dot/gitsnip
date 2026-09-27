@@ -1,4 +1,4 @@
-package tests
+package downloader_test
 
 import (
 	"context"

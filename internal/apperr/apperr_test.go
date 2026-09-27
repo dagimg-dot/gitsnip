@@ -1,4 +1,4 @@
-package tests
+package apperr_test
 
 import (
 	"errors"
