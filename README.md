@@ -195,7 +195,7 @@ Exit codes: `0` success, `1` the download failed, `2` the command line was inval
 
 ## Contributing
 
-Contributions are welcome. Run `make test` and `go vet ./...` before opening a pull request; CI runs the same checks.
+Contributions are welcome. Run `make test`, `go vet ./...` and `make lint` ([golangci-lint](https://golangci-lint.run) v2) before opening a pull request; CI runs the same checks.
 
 ## License
 

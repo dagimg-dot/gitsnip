@@ -9,9 +9,10 @@ Run before any commit:
 ```
 make test
 go vet ./...
+make lint
 ```
 
-Fix all failures. No commit with broken tests or vet warnings.
+Fix all failures. No commit with broken tests, vet warnings or lint issues.
 
 ## Commit rules
 
