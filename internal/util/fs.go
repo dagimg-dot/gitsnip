@@ -24,13 +24,14 @@ func SaveToFile(path string, content io.Reader, perm os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", path, err)
 	}
-	defer file.Close()
 
 	_, err = io.Copy(file, content)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return fmt.Errorf("failed to write to file %s: %w", path, err)
 	}
-
 	return nil
 }
 
@@ -148,9 +149,12 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer dstFile.Close()
 
-	if _, err = io.Copy(dstFile, srcFile); err != nil {
+	_, err = io.Copy(dstFile, srcFile)
+	if closeErr := dstFile.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
 		return fmt.Errorf("failed to copy file content: %w", err)
 	}
 
