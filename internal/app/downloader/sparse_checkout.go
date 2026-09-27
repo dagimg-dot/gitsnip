@@ -65,7 +65,7 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req *model.Requ
 	if isCommitID(g.ref) {
 		rev, obtain = "FETCH_HEAD", g.fetchCommit
 	}
-	if err := obtain(ctx, repoDir); err != nil {
+	if err := obtain(ctx, repoDir, sparseRules(paths) != nil); err != nil {
 		return model.Snapshot{}, g.failure(ctx, err)
 	}
 
@@ -163,10 +163,16 @@ func (g *gitSession) run(ctx context.Context, dir string, args ...string) (strin
 	return out, err
 }
 
-// clone fetches commits and trees but no file contents. read-tree later
-// downloads only the blobs the sparse rules select, in a single batch.
-func (g *gitSession) clone(ctx context.Context, repoDir string) error {
-	args := []string{"clone", "--quiet", "--depth=1", "--filter=blob:none", "--no-checkout", "--no-tags"}
+// clone with partial set fetches commits and trees but no file contents.
+// read-tree later downloads only the blobs the sparse rules select, in a
+// single batch. A whole-repository download skips the filter, since one plain
+// shallow clone is faster than a second request naming every blob.
+func (g *gitSession) clone(ctx context.Context, repoDir string, partial bool) error {
+	args := []string{"clone", "--quiet", "--depth=1"}
+	if partial {
+		args = append(args, "--filter=blob:none")
+	}
+	args = append(args, "--no-checkout", "--no-tags")
 	if g.ref != "" {
 		args = append(args, "--branch", g.ref)
 	}
@@ -174,20 +180,24 @@ func (g *gitSession) clone(ctx context.Context, repoDir string) error {
 	return err
 }
 
-// fetchCommit sets up the partial clone by hand because clone --branch only
-// accepts branch and tag names, not commit hashes.
-func (g *gitSession) fetchCommit(ctx context.Context, repoDir string) error {
+// fetchCommit sets up the clone by hand because clone --branch only accepts
+// branch and tag names, not commit hashes.
+func (g *gitSession) fetchCommit(ctx context.Context, repoDir string, partial bool) error {
 	if _, err := g.run(ctx, "", "init", "--quiet", "--", repoDir); err != nil {
 		return err
 	}
-	steps := [][]string{
-		{"remote", "add", "--", "origin", g.url},
-		{"config", "core.repositoryformatversion", "1"},
-		{"config", "extensions.partialclone", "origin"},
-		{"config", "remote.origin.promisor", "true"},
-		{"config", "remote.origin.partialclonefilter", "blob:none"},
-		{"fetch", "--quiet", "--depth=1", "--filter=blob:none", "--no-tags", "origin", g.ref},
+	steps := [][]string{{"remote", "add", "--", "origin", g.url}}
+	fetchArgs := []string{"fetch", "--quiet", "--depth=1"}
+	if partial {
+		steps = append(steps,
+			[]string{"config", "core.repositoryformatversion", "1"},
+			[]string{"config", "extensions.partialclone", "origin"},
+			[]string{"config", "remote.origin.promisor", "true"},
+			[]string{"config", "remote.origin.partialclonefilter", "blob:none"},
+		)
+		fetchArgs = append(fetchArgs, "--filter=blob:none")
 	}
+	steps = append(steps, append(fetchArgs, "--no-tags", "origin", g.ref))
 	for _, args := range steps {
 		if _, err := g.run(ctx, repoDir, args...); err != nil {
 			return err

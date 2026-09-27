@@ -214,12 +214,19 @@ func TestSparseCheckoutFetchesFilesAndParentAttributesInOneBatch(t *testing.T) {
 
 func TestSparseCheckoutFetchesEverythingWithoutPaths(t *testing.T) {
 	fx := newFixture(t)
-	snap, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := len(checkedOut(t, snap.Dir)); got != len(fixtureFiles) {
-		t.Errorf("checked out %d files, want %d", got, len(fixtureFiles))
+	for _, ref := range []string{"", fx.head} {
+		snap, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url), Ref: ref})
+		if err != nil {
+			t.Fatalf("%q: %v", ref, err)
+		}
+		if got := len(checkedOut(t, snap.Dir)); got != len(fixtureFiles) {
+			t.Errorf("%q: checked out %d files, want %d", ref, got, len(fixtureFiles))
+		}
+		promisor := exec.Command("git", "config", "--get", "remote.origin.promisor")
+		promisor.Dir = snap.Dir
+		if out, _ := promisor.Output(); len(out) > 0 {
+			t.Errorf("%q: a whole-repository download used a partial clone", ref)
+		}
 	}
 }
 
