@@ -29,7 +29,7 @@ func TestEnsureDir_existing(t *testing.T) {
 
 func TestSaveToFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "test.txt")
-	if err := util.SaveToFile(path, strings.NewReader("hello world")); err != nil {
+	if err := util.SaveToFile(path, strings.NewReader("hello world"), 0o755); err != nil {
 		t.Fatalf("SaveToFile failed: %v", err)
 	}
 	data, err := os.ReadFile(path)
@@ -38,6 +38,9 @@ func TestSaveToFile(t *testing.T) {
 	}
 	if string(data) != "hello world" {
 		t.Errorf("got %q, want %q", string(data), "hello world")
+	}
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("mode = %v, want the executable bit kept", info.Mode())
 	}
 }
 

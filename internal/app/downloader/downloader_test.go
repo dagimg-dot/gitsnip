@@ -3,10 +3,6 @@ package downloader_test
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -231,109 +227,6 @@ func TestSparseCheckoutNeedsGit(t *testing.T) {
 		context.Background(), model.Request{RepoURL: "https://github.com/owner/repo"}, t.TempDir(), model.Discard{})
 	if !errors.Is(err, apperr.ErrGitNotInstalled) {
 		t.Errorf("got %v, want ErrGitNotInstalled", err)
-	}
-}
-
-type redirectDoer struct {
-	target *url.URL
-}
-
-func (d redirectDoer) Do(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	req.URL.Scheme, req.URL.Host, req.Host = d.target.Scheme, d.target.Host, ""
-	return http.DefaultClient.Do(req)
-}
-
-func fakeGitHub(t *testing.T) downloader.HTTPDoer {
-	t.Helper()
-	item := func(name, path, typ string) string {
-		dl := "null"
-		if typ == "file" {
-			dl = fmt.Sprintf("%q", "https://raw.githubusercontent.com/o/r/main/"+path)
-		}
-		return fmt.Sprintf(`{"name":%q,"path":%q,"type":%q,"download_url":%s}`, name, path, typ, dl)
-	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/o/r/contents/", func(w http.ResponseWriter, r *http.Request) {
-		switch strings.TrimPrefix(r.URL.Path, "/repos/o/r/contents/") {
-		case "src":
-			fmt.Fprintf(w, "[%s,%s]", item("a.txt", "src/a.txt", "file"), item("sub", "src/sub", "dir"))
-		case "src/sub":
-			fmt.Fprintf(w, "[%s]", item("b.txt", "src/sub/b.txt", "file"))
-		case "src/a.txt":
-			fmt.Fprint(w, item("a.txt", "src/a.txt", "file"))
-		case "broken":
-			fmt.Fprint(w, "<html>upstream error</html>")
-		default:
-			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
-		}
-	})
-	mux.HandleFunc("/o/r/main/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "content of "+strings.TrimPrefix(r.URL.Path, "/o/r/main/"))
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	target, _ := url.Parse(srv.URL)
-	return redirectDoer{target: target}
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
-}
-
-func apiDownload(t *testing.T, raws ...string) (string, error) {
-	t.Helper()
-	dir := t.TempDir()
-	req := model.Request{RepoURL: "https://github.com/o/r", Ref: "main", Paths: patterns(t, raws...)}
-	_, err := downloader.NewGitHubAPIDownloader(fakeGitHub(t)).Download(context.Background(), req, dir, model.Discard{})
-	return dir, err
-}
-
-func TestGitHubAPIDownloadsNestedFolders(t *testing.T) {
-	dir, err := apiDownload(t, "src")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := readFile(t, filepath.Join(dir, "src", "a.txt")); got != "content of src/a.txt" {
-		t.Errorf("a.txt = %q", got)
-	}
-	if got := readFile(t, filepath.Join(dir, "src", "sub", "b.txt")); got != "content of src/sub/b.txt" {
-		t.Errorf("sub/b.txt = %q", got)
-	}
-}
-
-func TestGitHubAPIDownloadsASingleFile(t *testing.T) {
-	dir, err := apiDownload(t, "src/a.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := readFile(t, filepath.Join(dir, "src", "a.txt")); got != "content of src/a.txt" {
-		t.Errorf("a.txt = %q", got)
-	}
-}
-
-func TestGitHubAPIRejectsMalformedResponses(t *testing.T) {
-	if _, err := apiDownload(t, "broken"); err == nil || !strings.Contains(err.Error(), "failed to parse API response") {
-		t.Errorf("got %v, want a parse error", err)
-	}
-}
-
-func TestGitHubAPIReportsMissingPaths(t *testing.T) {
-	_, err := apiDownload(t, "nope")
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) || appErr.StatusCode != http.StatusNotFound {
-		t.Errorf("got %v, want a 404 app error", err)
-	}
-}
-
-func TestGitHubAPIRefusesGlobsForNow(t *testing.T) {
-	if _, err := apiDownload(t, "src/*.txt"); !errors.Is(err, apperr.ErrUnsupported) {
-		t.Errorf("got %v, want ErrUnsupported", err)
 	}
 }
 

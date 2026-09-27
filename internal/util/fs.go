@@ -14,13 +14,13 @@ func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0755)
 }
 
-func SaveToFile(path string, content io.Reader) error {
+func SaveToFile(path string, content io.Reader, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := EnsureDir(dir); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
-	file, err := os.Create(path)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", path, err)
 	}
