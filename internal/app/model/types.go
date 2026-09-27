@@ -62,10 +62,3 @@ type Reporter interface {
 	Warn(text string)
 	Debug(text string)
 }
-
-type Discard struct{}
-
-func (Discard) Stage(string)      {}
-func (Discard) Progress(int, int) {}
-func (Discard) Warn(string)       {}
-func (Discard) Debug(string)      {}

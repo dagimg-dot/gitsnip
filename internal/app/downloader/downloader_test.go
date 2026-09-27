@@ -113,7 +113,7 @@ func patterns(t *testing.T, raws ...string) []pathspec.Pattern {
 
 func sparseDownload(t *testing.T, req *model.Request) (model.Snapshot, error) {
 	t.Helper()
-	return downloader.NewSparseCheckoutDownloader(gitutil.RealRunner{}).Download(context.Background(), req, t.TempDir(), model.Discard{})
+	return downloader.NewSparseCheckoutDownloader(gitutil.RealRunner{}).Download(context.Background(), req, t.TempDir(), &events{})
 }
 
 func checkedOut(t *testing.T, dir string) []string {
@@ -390,7 +390,7 @@ func (noGit) HasGit() bool {
 
 func TestSparseCheckoutNeedsGit(t *testing.T) {
 	_, err := downloader.NewSparseCheckoutDownloader(noGit{}).Download(
-		context.Background(), &model.Request{Source: parseSource(t, "owner/repo")}, t.TempDir(), model.Discard{})
+		context.Background(), &model.Request{Source: parseSource(t, "owner/repo")}, t.TempDir(), &events{})
 	if !errors.Is(err, apperr.ErrGitNotInstalled) {
 		t.Errorf("got %v, want ErrGitNotInstalled", err)
 	}

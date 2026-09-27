@@ -49,15 +49,23 @@ func (f *fakeDownloader) Download(ctx context.Context, req *model.Request, dir s
 			return model.Snapshot{}, err
 		}
 	}
-	snap := model.Snapshot{Dir: dir, Ref: "main", Commit: "abc123", Paths: f.paths}
-	if f.listing != nil {
-		snap.List = func(context.Context) ([]string, error) { return f.listing, nil }
+	paths := f.paths
+	if paths == nil {
+		paths = req.Paths
 	}
-	return snap, nil
+	list := func(context.Context) ([]string, error) { return f.listing, nil }
+	return model.Snapshot{Dir: dir, Ref: "main", Commit: "abc123", Paths: paths, List: list}, nil
 }
 
+type discard struct{}
+
+func (discard) Stage(string)      {}
+func (discard) Progress(int, int) {}
+func (discard) Warn(string)       {}
+func (discard) Debug(string)      {}
+
 type recorder struct {
-	model.Discard
+	discard
 	warnings []string
 }
 
@@ -111,7 +119,7 @@ func TestRunWritesAFolderIntoItsOwnName(t *testing.T) {
 	inTempDir(t)
 	dl := &fakeDownloader{files: repoFiles}
 
-	res, err := run(context.Background(), dl, &model.Request{Paths: patterns(t, "src/lib")}, model.Discard{})
+	res, err := run(context.Background(), dl, &model.Request{Paths: patterns(t, "src/lib")}, discard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +134,7 @@ func TestRunWritesAFolderIntoItsOwnName(t *testing.T) {
 
 func TestRunWritesASingleFileIntoTheCurrentDirectory(t *testing.T) {
 	inTempDir(t)
-	res, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib/a.txt")}, model.Discard{})
+	res, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib/a.txt")}, discard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +147,7 @@ func TestRunWritesASingleFileIntoTheCurrentDirectory(t *testing.T) {
 func TestRunKeepsStructureBelowTheCommonParent(t *testing.T) {
 	inTempDir(t)
 	res, err := run(context.Background(), &fakeDownloader{files: repoFiles},
-		&model.Request{Paths: patterns(t, "data/usage.txt", "data/*_linux.json")}, model.Discard{})
+		&model.Request{Paths: patterns(t, "data/usage.txt", "data/*_linux.json")}, discard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +163,7 @@ func TestRunKeepsStructureBelowTheCommonParent(t *testing.T) {
 func TestRunNamesAWholeRepositoryAfterIt(t *testing.T) {
 	inTempDir(t)
 	res, err := run(context.Background(), &fakeDownloader{files: repoFiles},
-		&model.Request{Source: source.Source{Repo: "snipped"}}, model.Discard{})
+		&model.Request{Source: source.Source{Repo: "snipped"}}, discard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +177,7 @@ func TestRunNamesAWholeRepositoryAfterIt(t *testing.T) {
 func TestRunHonorsAnExplicitOutput(t *testing.T) {
 	inTempDir(t)
 	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles},
-		&model.Request{Paths: patterns(t, "src/lib/a.txt"), Output: "vendor"}, model.Discard{}); err != nil {
+		&model.Request{Paths: patterns(t, "src/lib/a.txt"), Output: "vendor"}, discard{}); err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, "vendor/a.txt", "a")
@@ -183,7 +191,7 @@ func TestRunReportsMissingPaths(t *testing.T) {
 	}
 	for raw, want := range cases {
 		_, err := run(context.Background(), &fakeDownloader{files: repoFiles},
-			&model.Request{Paths: patterns(t, "src/lib", raw), Output: "out"}, model.Discard{})
+			&model.Request{Paths: patterns(t, "src/lib", raw), Output: "out"}, discard{})
 		if !errors.Is(err, apperr.ErrPathNotFound) || err.Error() != want {
 			t.Errorf("%s: got %v, want %q", raw, err, want)
 		}
@@ -195,7 +203,7 @@ func TestRunLeavesNothingBehindWhenTheFetchFails(t *testing.T) {
 	inTempDir(t)
 	boom := errors.New("boom")
 	dl := &fakeDownloader{err: boom}
-	if _, err := run(context.Background(), dl, &model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); !errors.Is(err, boom) {
+	if _, err := run(context.Background(), dl, &model.Request{Paths: patterns(t, "src/lib")}, discard{}); !errors.Is(err, boom) {
 		t.Errorf("got %v, want the download error", err)
 	}
 	assertMissing(t, "lib")
@@ -208,7 +216,7 @@ func TestRunRemovesAPartialOutputWhenWritingFails(t *testing.T) {
 	}
 	inTempDir(t)
 	dl := &fakeDownloader{files: repoFiles, unusable: []string{"src/lib/sub/b.txt"}}
-	if _, err := run(context.Background(), dl, &model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); err == nil {
+	if _, err := run(context.Background(), dl, &model.Request{Paths: patterns(t, "src/lib")}, discard{}); err == nil {
 		t.Fatal("expected the unreadable file to fail the copy")
 	}
 	assertMissing(t, "lib")
@@ -218,7 +226,7 @@ func TestRunStopsWhenCancelled(t *testing.T) {
 	inTempDir(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := run(ctx, &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); !errors.Is(err, context.Canceled) {
+	if _, err := run(ctx, &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib")}, discard{}); !errors.Is(err, context.Canceled) {
 		t.Errorf("got %v, want context.Canceled", err)
 	}
 	assertMissing(t, "lib")
@@ -252,7 +260,7 @@ func TestRunNeverCopiesThroughSymlinks(t *testing.T) {
 
 	t.Run("requested path goes through a symlink", func(t *testing.T) {
 		inTempDir(t)
-		_, err := run(context.Background(), dl(), &model.Request{Paths: patterns(t, "docs/id_rsa"), Output: "out"}, model.Discard{})
+		_, err := run(context.Background(), dl(), &model.Request{Paths: patterns(t, "docs/id_rsa"), Output: "out"}, discard{})
 		if !errors.Is(err, apperr.ErrPathNotFound) {
 			t.Errorf("got %v, want ErrPathNotFound", err)
 		}
@@ -280,7 +288,7 @@ func TestRunNeverCopiesThroughSymlinks(t *testing.T) {
 func TestRunUsesThePathsTheDownloaderResolved(t *testing.T) {
 	inTempDir(t)
 	dl := &fakeDownloader{files: repoFiles, paths: patterns(t, "src/lib")}
-	res, err := run(context.Background(), dl, &model.Request{}, model.Discard{})
+	res, err := run(context.Background(), dl, &model.Request{}, discard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +302,7 @@ func TestRunRefusesToOverwriteExistingFiles(t *testing.T) {
 	os.MkdirAll("lib", 0o755)
 	os.WriteFile("lib/a.txt", []byte("mine"), 0o644)
 
-	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib")}, model.Discard{})
+	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib")}, discard{})
 	want := "." + string(filepath.Separator) + "lib already has 1 of these files"
 	if !errors.Is(err, apperr.ErrDestinationExists) || err.Error() != want {
 		t.Fatalf("got %v, want %q", err, want)
@@ -302,7 +310,7 @@ func TestRunRefusesToOverwriteExistingFiles(t *testing.T) {
 	assertFile(t, "lib/a.txt", "mine")
 	assertMissing(t, "lib/sub")
 
-	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib"), Force: true}, model.Discard{}); err != nil {
+	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib"), Force: true}, discard{}); err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, "lib/a.txt", "a")
@@ -312,7 +320,7 @@ func TestRunRefusesToOverwriteExistingFiles(t *testing.T) {
 func TestRunNamesTheSingleFileThatWouldBeOverwritten(t *testing.T) {
 	inTempDir(t)
 	os.WriteFile("a.txt", []byte("mine"), 0o644)
-	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib/a.txt")}, model.Discard{})
+	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib/a.txt")}, discard{})
 	if want := "." + string(filepath.Separator) + "a.txt already exists"; err == nil || err.Error() != want {
 		t.Fatalf("got %v, want %q", err, want)
 	}
@@ -323,7 +331,7 @@ func TestRunMergesIntoAFolderWithoutClashes(t *testing.T) {
 	inTempDir(t)
 	os.MkdirAll("lib", 0o755)
 	os.WriteFile("lib/notes.md", []byte("keep"), 0o644)
-	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); err != nil {
+	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib")}, discard{}); err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, "lib/notes.md", "keep")
@@ -333,7 +341,7 @@ func TestRunMergesIntoAFolderWithoutClashes(t *testing.T) {
 func TestRunRejectsAFileWhereTheFolderShouldGo(t *testing.T) {
 	inTempDir(t)
 	os.WriteFile("lib", []byte("not a folder"), 0o644)
-	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib"), Force: true}, model.Discard{})
+	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, &model.Request{Paths: patterns(t, "src/lib"), Force: true}, discard{})
 	if !errors.Is(err, apperr.ErrDestinationExists) {
 		t.Fatalf("got %v, want ErrDestinationExists", err)
 	}
@@ -349,7 +357,7 @@ func TestRunSuggestsTheClosestPath(t *testing.T) {
 	dl := &fakeDownloader{files: repoFiles, listing: listing}
 	req := &model.Request{Source: source.Source{Host: "github.com", Owner: "o", Repo: "r"}, Paths: patterns(t, "src/lb")}
 
-	_, err := run(context.Background(), dl, req, model.Discard{})
+	_, err := run(context.Background(), dl, req, discard{})
 	var appErr *apperr.Error
 	if !errors.As(err, &appErr) {
 		t.Fatalf("got %v, want an app error", err)

@@ -37,12 +37,7 @@ func run(ctx context.Context, dl downloader.Downloader, req *model.Request, rep 
 		return model.Result{}, fmt.Errorf("failed to read the downloaded files: %w", err)
 	}
 
-	paths := snap.Paths
-	if paths == nil {
-		paths = req.Paths
-	}
-
-	sel, gap := selectFiles(paths, files)
+	sel, gap := selectFiles(snap.Paths, files)
 	if gap != nil {
 		return model.Result{}, missing(ctx, *gap, req, &snap)
 	}
@@ -66,7 +61,7 @@ func run(ctx context.Context, dl downloader.Downloader, req *model.Request, rep 
 	return model.Result{
 		Ref:    snap.Ref,
 		Commit: snap.Commit,
-		Paths:  paths,
+		Paths:  snap.Paths,
 		Output: output,
 		Target: target,
 		Files:  written.files,

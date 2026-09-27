@@ -98,11 +98,9 @@ func missing(ctx context.Context, p pathspec.Pattern, req *model.Request, snap *
 	}
 
 	hint := "check the path and the branch"
-	if snap.List != nil {
-		if all, err := snap.List(ctx); err == nil {
-			if guess := pathspec.Suggest(p.String(), all); guess != "" {
-				hint = fmt.Sprintf("did you mean %s?", guess)
-			}
+	if all, err := snap.List(ctx); err == nil {
+		if guess := pathspec.Suggest(p.String(), all); guess != "" {
+			hint = fmt.Sprintf("did you mean %s?", guess)
 		}
 	}
 	return apperr.Wrap(apperr.ErrPathNotFound, nil, fmt.Sprintf("Path %q doesn't exist in %s", p, where), hint)
