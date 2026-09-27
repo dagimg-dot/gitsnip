@@ -181,9 +181,7 @@ func (g *gitHubAPIDownloader) fetchAll(ctx context.Context, c *githubClient, sha
 		firstErr error
 	)
 	for range min(g.workers, total) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for e := range jobs {
 				if err := c.fetch(ctx, sha, e, dir); err != nil {
 					once.Do(func() {
@@ -194,7 +192,7 @@ func (g *gitHubAPIDownloader) fetchAll(ctx context.Context, c *githubClient, sha
 				}
 				c.rep.Progress(int(done.Add(1)), total)
 			}
-		}()
+		})
 	}
 
 feed:

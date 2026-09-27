@@ -65,8 +65,8 @@ func gitMessage(stderr string) string {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		for _, prefix := range []string{"fatal: ", "error: "} {
-			if strings.HasPrefix(line, prefix) {
-				return strings.TrimPrefix(line, prefix)
+			if after, ok := strings.CutPrefix(line, prefix); ok {
+				return after
 			}
 		}
 	}
@@ -82,8 +82,7 @@ func hostOf(repo string) string {
 	if u, err := url.Parse(repo); err == nil && u.Host != "" {
 		return u.Hostname()
 	}
-	if at := strings.Index(repo, "@"); at >= 0 {
-		rest := repo[at+1:]
+	if _, rest, ok := strings.Cut(repo, "@"); ok {
 		if colon := strings.Index(rest, ":"); colon > 0 {
 			return rest[:colon]
 		}

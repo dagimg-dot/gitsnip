@@ -14,7 +14,7 @@ type Pattern struct {
 
 func Parse(raw string) (Pattern, error) {
 	var segments []string
-	for _, segment := range strings.Split(strings.ReplaceAll(strings.TrimSpace(raw), `\`, "/"), "/") {
+	for segment := range strings.SplitSeq(strings.ReplaceAll(strings.TrimSpace(raw), `\`, "/"), "/") {
 		switch segment {
 		case "", ".":
 			continue

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -114,22 +115,22 @@ func (g *gitSession) splitRefPath(ctx context.Context, refPath string) (ref, res
 		return "", "", g.failure(ctx, err)
 	}
 	refs := map[string]bool{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
 			continue
 		}
 		name := strings.TrimSuffix(fields[1], "^{}")
 		for _, prefix := range []string{"refs/heads/", "refs/tags/"} {
-			if strings.HasPrefix(name, prefix) {
-				refs[strings.TrimPrefix(name, prefix)] = true
+			if after, ok := strings.CutPrefix(name, prefix); ok {
+				refs[after] = true
 			}
 		}
 	}
 
-	for i := len(candidates) - 1; i >= 0; i-- {
-		if refs[candidates[i]] {
-			return candidates[i], strings.Join(segs[i+1:], "/"), nil
+	for i, candidate := range slices.Backward(candidates) {
+		if refs[candidate] {
+			return candidate, strings.Join(segs[i+1:], "/"), nil
 		}
 	}
 	if isCommitID(segs[0]) {
@@ -234,7 +235,7 @@ func (g *gitSession) defaultBranch(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 3 && fields[0] == "ref:" && fields[2] == "HEAD" {
 			return strings.TrimPrefix(fields[1], "refs/heads/")

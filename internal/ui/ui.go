@@ -163,7 +163,7 @@ func (u *UI) Fail(message, hint, detail string) {
 			b.WriteString("  " + p(Dim, "→ "+hint) + "\n")
 		}
 		if detail != "" && u.opts.Verbose {
-			for _, line := range strings.Split(strings.TrimSpace(detail), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSpace(detail), "\n") {
 				b.WriteString("  " + p(Dim, line) + "\n")
 			}
 		}

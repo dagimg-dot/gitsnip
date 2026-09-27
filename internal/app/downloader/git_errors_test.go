@@ -38,8 +38,7 @@ func TestGitFailureClassifiesStderr(t *testing.T) {
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
-			var gerr *gitutil.Error
-			if !errors.As(err, &gerr) {
+			if _, ok := errors.AsType[*gitutil.Error](err); !ok {
 				t.Fatal("classified error lost the underlying git error")
 			}
 		})

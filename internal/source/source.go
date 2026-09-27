@@ -260,7 +260,7 @@ func githubURL(s *Source) string {
 
 func split(p string) []string {
 	var segs []string
-	for _, seg := range strings.Split(p, "/") {
+	for seg := range strings.SplitSeq(p, "/") {
 		if seg != "" {
 			segs = append(segs, seg)
 		}
