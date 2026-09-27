@@ -51,6 +51,15 @@ func TestRunGitCommandIsNonInteractiveEnglishAndStallAware(t *testing.T) {
 	}
 }
 
+func TestRunGitCommandReportsCancellation(t *testing.T) {
+	requireGit(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := gitutil.RunGitCommand(ctx, t.TempDir(), nil, "version"); !errors.Is(err, context.Canceled) {
+		t.Errorf("got %v, want context.Canceled", err)
+	}
+}
+
 func TestErrorRedactsCredentials(t *testing.T) {
 	err := &gitutil.Error{
 		Args:   []string{"remote", "add", "origin", "https://ghp_secret@github.com/o/r"},

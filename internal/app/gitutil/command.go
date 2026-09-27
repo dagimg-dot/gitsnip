@@ -44,6 +44,9 @@ func RunGitCommand(ctx context.Context, dir string, env []string, args ...string
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
 		return "", &Error{Args: args, Stderr: strings.TrimSpace(stderr.String()), Err: err}
 	}
 	return stdout.String(), nil
