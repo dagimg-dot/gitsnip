@@ -27,29 +27,25 @@ type HTTPDoer interface {
 }
 
 const (
-	GitHubAPIBaseURL = "https://api.github.com"
-	GitHubRawBaseURL = "https://raw.githubusercontent.com"
+	apiURL  = "https://api.github.com"
+	rawURL  = "https://raw.githubusercontent.com"
+	workers = 8
 )
 
 type gitHubAPIDownloader struct {
-	client  HTTPDoer
-	apiURL  string
-	rawURL  string
-	workers int
+	client HTTPDoer
 }
 
 func NewGitHubAPIDownloader(client HTTPDoer) Downloader {
-	return &gitHubAPIDownloader{client: client, apiURL: GitHubAPIBaseURL, rawURL: GitHubRawBaseURL, workers: 8}
+	return &gitHubAPIDownloader{client: client}
 }
 
 type githubClient struct {
-	doer   HTTPDoer
-	apiURL string
-	rawURL string
-	token  string
-	owner  string
-	repo   string
-	rep    model.Reporter
+	doer  HTTPDoer
+	token string
+	owner string
+	repo  string
+	rep   model.Reporter
 }
 
 type treeEntry struct {
@@ -65,11 +61,7 @@ type tree struct {
 }
 
 func (g *gitHubAPIDownloader) Download(ctx context.Context, req *model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
-	if !req.Source.GitHub() {
-		return model.Snapshot{}, apperr.Wrap(apperr.ErrUnsupported, nil,
-			"The api method only works with github.com", "use --method sparse for other hosts")
-	}
-	c := &githubClient{doer: g.client, apiURL: g.apiURL, rawURL: g.rawURL, token: req.Token, owner: req.Source.Owner, repo: req.Source.Repo, rep: rep}
+	c := &githubClient{doer: g.client, token: req.Token, owner: req.Source.Owner, repo: req.Source.Repo, rep: rep}
 
 	rep.Stage("resolving the branch")
 	ref, sha, paths, err := c.resolve(ctx, req)
@@ -91,7 +83,7 @@ func (g *gitHubAPIDownloader) Download(ctx context.Context, req *model.Request, 
 	for _, path := range submodules {
 		rep.Warn(fmt.Sprintf("skipped submodule %s (submodules aren't downloaded)", path))
 	}
-	if err := g.fetchAll(ctx, c, sha, files, dir); err != nil {
+	if err := c.fetchAll(ctx, sha, files, dir); err != nil {
 		return model.Snapshot{}, err
 	}
 
@@ -161,7 +153,7 @@ func matchesAny(paths []pathspec.Pattern, file string) bool {
 	return false
 }
 
-func (g *gitHubAPIDownloader) fetchAll(ctx context.Context, c *githubClient, sha string, files []treeEntry, dir string) error {
+func (c *githubClient) fetchAll(ctx context.Context, sha string, files []treeEntry, dir string) error {
 	total := len(files)
 	if total == 0 {
 		return nil
@@ -180,7 +172,7 @@ func (g *gitHubAPIDownloader) fetchAll(ctx context.Context, c *githubClient, sha
 		once     sync.Once
 		firstErr error
 	)
-	for range min(g.workers, total) {
+	for range min(workers, total) {
 		wg.Go(func() {
 			for e := range jobs {
 				if err := c.fetch(ctx, sha, e, dir); err != nil {
@@ -260,7 +252,7 @@ func (c *githubClient) defaultBranch(ctx context.Context) (string, error) {
 	var repo struct {
 		DefaultBranch string `json:"default_branch"`
 	}
-	status, err := c.getJSON(ctx, fmt.Sprintf("%s/repos/%s", c.apiURL, c.escapedSlug()), &repo)
+	status, err := c.getJSON(ctx, fmt.Sprintf("%s/repos/%s", apiURL, c.escapedSlug()), &repo)
 	if status == http.StatusNotFound {
 		return "", apperr.Wrap(apperr.ErrRepositoryNotFound, err,
 			fmt.Sprintf("Repository %s doesn't exist or is private", c.slug()),
@@ -281,7 +273,7 @@ func (c *githubClient) commit(ctx context.Context, ref string) (string, error) {
 }
 
 func (c *githubClient) lookupCommit(ctx context.Context, ref string) (sha string, found bool, err error) {
-	resp, err := c.get(ctx, fmt.Sprintf("%s/repos/%s/commits/%s", c.apiURL, c.escapedSlug(), escapePath(ref)), "application/vnd.github.sha")
+	resp, err := c.get(ctx, fmt.Sprintf("%s/repos/%s/commits/%s", apiURL, c.escapedSlug(), escapePath(ref)), "application/vnd.github.sha")
 	if err != nil {
 		return "", false, err
 	}
@@ -315,21 +307,17 @@ func (c *githubClient) missingRef(ctx context.Context, ref string) error {
 
 func (c *githubClient) tree(ctx context.Context, sha string) (tree, error) {
 	var t tree
-	_, err := c.getJSON(ctx, fmt.Sprintf("%s/repos/%s/git/trees/%s?recursive=1", c.apiURL, c.escapedSlug(), sha), &t)
+	_, err := c.getJSON(ctx, fmt.Sprintf("%s/repos/%s/git/trees/%s?recursive=1", apiURL, c.escapedSlug(), sha), &t)
 	return t, err
 }
 
 func (c *githubClient) fetch(ctx context.Context, sha string, e treeEntry, dir string) error {
 	target := filepath.Join(dir, filepath.FromSlash(e.Path))
-	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-		return fmt.Errorf("failed to create a directory for %s: %w", e.Path, err)
-	}
-
 	if e.Mode == "120000" {
 		return c.fetchSymlink(ctx, e, target)
 	}
 
-	resp, err := c.get(ctx, fmt.Sprintf("%s/%s/%s/%s", c.rawURL, c.escapedSlug(), sha, escapePath(e.Path)), "*/*")
+	resp, err := c.get(ctx, fmt.Sprintf("%s/%s/%s/%s", rawURL, c.escapedSlug(), sha, escapePath(e.Path)), "*/*")
 	if err != nil {
 		return err
 	}
@@ -346,7 +334,7 @@ func (c *githubClient) fetch(ctx context.Context, sha string, e treeEntry, dir s
 }
 
 func (c *githubClient) fetchSymlink(ctx context.Context, e treeEntry, target string) error {
-	resp, err := c.get(ctx, fmt.Sprintf("%s/repos/%s/git/blobs/%s", c.apiURL, c.escapedSlug(), e.SHA), "application/vnd.github.raw")
+	resp, err := c.get(ctx, fmt.Sprintf("%s/repos/%s/git/blobs/%s", apiURL, c.escapedSlug(), e.SHA), "application/vnd.github.raw")
 	if err != nil {
 		return err
 	}
@@ -358,6 +346,9 @@ func (c *githubClient) fetchSymlink(ctx context.Context, e treeEntry, target str
 	link, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return fmt.Errorf("failed to read symlink %s: %w", e.Path, err)
+	}
+	if err := util.EnsureDir(filepath.Dir(target)); err != nil {
+		return fmt.Errorf("failed to create a directory for %s: %w", e.Path, err)
 	}
 	if err := os.Symlink(string(link), target); err != nil {
 		c.rep.Warn(fmt.Sprintf("skipped symlink %s (symlinks can't be created here)", e.Path))
