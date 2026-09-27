@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
@@ -13,8 +15,18 @@ import (
 
 type fakeDownloader struct {
 	files map[string]string
+	links map[string]string
 	err   error
 	dir   string
+}
+
+type recorder struct {
+	model.Discard
+	warnings []string
+}
+
+func (r *recorder) Warn(text string) {
+	r.warnings = append(r.warnings, text)
 }
 
 func (f *fakeDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
@@ -28,6 +40,11 @@ func (f *fakeDownloader) Download(ctx context.Context, req model.Request, dir st
 			return model.Snapshot{}, err
 		}
 		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			return model.Snapshot{}, err
+		}
+	}
+	for name, target := range f.links {
+		if err := os.Symlink(target, filepath.Join(dir, filepath.FromSlash(name))); err != nil {
 			return model.Snapshot{}, err
 		}
 	}
@@ -101,4 +118,53 @@ func TestRunLeavesNothingBehindWhenTheFetchFails(t *testing.T) {
 	}
 	assertMissing(t, out)
 	assertMissing(t, dl.dir)
+}
+
+func TestRunNeverCopiesThroughSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks needs extra privileges on Windows")
+	}
+
+	outside := t.TempDir()
+	os.WriteFile(filepath.Join(outside, "id_rsa"), []byte("PRIVATE KEY"), 0o600)
+	dl := func() *fakeDownloader {
+		return &fakeDownloader{files: repoFiles, links: map[string]string{
+			"docs":        outside,
+			"src/lib/key": filepath.Join(outside, "id_rsa"),
+		}}
+	}
+
+	t.Run("requested path is a symlink", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "docs")
+		rec := &recorder{}
+		if _, err := run(context.Background(), dl(), model.Request{Subdir: "docs", OutputDir: out}, rec); err != nil {
+			t.Fatal(err)
+		}
+		assertMissing(t, out)
+		if strings.Join(rec.warnings, "\n") != "skipped symlink docs (points outside the folder)" {
+			t.Errorf("warnings = %q", rec.warnings)
+		}
+	})
+
+	t.Run("requested path goes through a symlink", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "id_rsa")
+		_, err := run(context.Background(), dl(), model.Request{Subdir: "docs/id_rsa", OutputDir: out}, model.Discard{})
+		if !errors.Is(err, apperr.ErrPathNotFound) {
+			t.Errorf("got %v, want ErrPathNotFound", err)
+		}
+		assertMissing(t, out)
+	})
+
+	t.Run("folder contains a symlink", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "lib")
+		rec := &recorder{}
+		if _, err := run(context.Background(), dl(), model.Request{Subdir: "src/lib", OutputDir: out}, rec); err != nil {
+			t.Fatal(err)
+		}
+		assertFile(t, filepath.Join(out, "a.txt"), "a")
+		assertMissing(t, filepath.Join(out, "key"))
+		if strings.Join(rec.warnings, "\n") != "skipped symlink src/lib/key (points outside the folder)" {
+			t.Errorf("warnings = %q", rec.warnings)
+		}
+	})
 }
