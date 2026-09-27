@@ -35,6 +35,7 @@ type gitSession struct {
 	env    []string
 	url    string
 	repo   string
+	host   string
 	ref    string
 }
 
@@ -44,7 +45,7 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req *model.Requ
 			"Git isn't installed", "install git, or use --method api for GitHub repositories")
 	}
 
-	g := &gitSession{runner: s.runner, rep: rep, env: authEnv(req.Source.URL, req.Token), url: req.Source.URL, repo: req.Source.Display(), ref: req.Ref}
+	g := &gitSession{runner: s.runner, rep: rep, env: authEnv(req.Source.URL, req.Token), url: req.Source.URL, repo: req.Source.Display(), host: req.Source.Host, ref: req.Ref}
 	repoDir := filepath.Join(dir, "repo")
 
 	rep.Stage("cloning")
@@ -288,7 +289,7 @@ func (g *gitSession) restrict(ctx context.Context, repoDir string, rules []strin
 }
 
 func (g *gitSession) failure(ctx context.Context, err error) error {
-	failure := gitFailure(err, g.repo, g.ref)
+	failure := gitFailure(err, g.repo, g.host, g.ref)
 	var appErr *apperr.Error
 	if g.ref == "" || !errors.Is(failure, apperr.ErrRefNotFound) || !errors.As(failure, &appErr) {
 		return failure

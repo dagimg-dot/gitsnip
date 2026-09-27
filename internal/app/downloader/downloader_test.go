@@ -360,6 +360,24 @@ func TestSparseCheckoutLinksListOnlyBranchesAndTags(t *testing.T) {
 	}
 }
 
+type unreachableGit struct{}
+
+func (unreachableGit) Run(context.Context, string, []string, ...string) (string, error) {
+	return "", &gitutil.Error{Args: []string{"clone"}, Stderr: "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com", Err: errors.New("exit status 128")}
+}
+
+func (unreachableGit) HasGit() bool {
+	return true
+}
+
+func TestSparseCheckoutNamesTheHostItCouldNotReach(t *testing.T) {
+	_, err := downloader.NewSparseCheckoutDownloader(unreachableGit{}).Download(
+		context.Background(), &model.Request{Source: parseSource(t, "o/r")}, t.TempDir(), &events{})
+	if !errors.Is(err, apperr.ErrNetworkFailure) || err.Error() != "Couldn't reach github.com" {
+		t.Errorf("got %v, want a network failure naming github.com", err)
+	}
+}
+
 type noGit struct{}
 
 func (noGit) Run(context.Context, string, []string, ...string) (string, error) {

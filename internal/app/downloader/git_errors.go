@@ -1,17 +1,17 @@
 package downloader
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/dagimg-dot/gitsnip/internal/app/gitutil"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
 )
 
-func gitFailure(err error, repo, ref string) error {
+func gitFailure(err error, repo, host, ref string) error {
 	var gerr *gitutil.Error
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &gerr) {
 		return err
@@ -49,7 +49,7 @@ func gitFailure(err error, repo, ref string) error {
 			"check that your token or SSH key can read this repository")
 	case mentions("could not resolve host", "failed to connect", "connection timed out", "connection refused", "network is unreachable", "operation timed out", "operation too slow"):
 		return apperr.Wrap(apperr.ErrNetworkFailure, err,
-			fmt.Sprintf("Couldn't reach %s", hostOf(repo)),
+			fmt.Sprintf("Couldn't reach %s", cmp.Or(host, repo)),
 			"check your connection and try again")
 	}
 
@@ -76,19 +76,4 @@ func gitMessage(stderr string) string {
 		}
 	}
 	return "no output"
-}
-
-func hostOf(repo string) string {
-	if u, err := url.Parse(repo); err == nil && u.Host != "" {
-		return u.Hostname()
-	}
-	if _, rest, ok := strings.Cut(repo, "@"); ok {
-		if colon := strings.Index(rest, ":"); colon > 0 {
-			return rest[:colon]
-		}
-	}
-	if slash := strings.Index(repo, "/"); slash > 0 {
-		return repo[:slash]
-	}
-	return repo
 }

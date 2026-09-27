@@ -34,7 +34,7 @@ func TestGitFailureClassifiesStderr(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := gitFailure(gitErr([]string{"fetch"}, tc.stderr), "o/r", "main")
+			err := gitFailure(gitErr([]string{"fetch"}, tc.stderr), "o/r", "github.com", "main")
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
@@ -49,28 +49,29 @@ func TestGitFailureMessages(t *testing.T) {
 	cases := []struct {
 		err  error
 		repo string
+		host string
 		ref  string
 		want string
 	}{
-		{gitErr([]string{"fetch"}, "fatal: couldn't find remote ref main"), "torvalds/linux", "main", `Branch or tag "main" doesn't exist in torvalds/linux`},
-		{gitErr([]string{"fetch"}, "fatal: couldn't find remote ref HEAD"), "o/r", "", "Couldn't find the default branch of o/r"},
-		{gitErr([]string{"checkout"}, "warning: noise\nerror: something odd happened"), "o/r", "main", "git checkout failed: something odd happened"},
-		{gitErr([]string{"fetch"}, "fatal: unable to access 'https://github.com/o/r/': Could not resolve host: github.com"), "https://github.com/o/r", "main", "Couldn't reach github.com"},
-		{gitErr([]string{"fetch"}, "ssh: Could not resolve hostname example.org: Name or service not known"), "git@example.org:o/r.git", "main", "Couldn't reach example.org"},
+		{gitErr([]string{"fetch"}, "fatal: couldn't find remote ref main"), "torvalds/linux", "github.com", "main", `Branch or tag "main" doesn't exist in torvalds/linux`},
+		{gitErr([]string{"fetch"}, "fatal: couldn't find remote ref HEAD"), "o/r", "github.com", "", "Couldn't find the default branch of o/r"},
+		{gitErr([]string{"checkout"}, "warning: noise\nerror: something odd happened"), "o/r", "github.com", "main", "git checkout failed: something odd happened"},
+		{gitErr([]string{"fetch"}, "fatal: unable to access 'https://github.com/o/r/': Could not resolve host: github.com"), "o/r", "github.com", "main", "Couldn't reach github.com"},
+		{gitErr([]string{"fetch"}, "ssh: Could not resolve hostname example.org: Name or service not known"), "example.org/o/r", "example.org", "main", "Couldn't reach example.org"},
 	}
 	for _, tc := range cases {
-		if got := gitFailure(tc.err, tc.repo, tc.ref).Error(); got != tc.want {
+		if got := gitFailure(tc.err, tc.repo, tc.host, tc.ref).Error(); got != tc.want {
 			t.Errorf("got %q, want %q", got, tc.want)
 		}
 	}
 }
 
 func TestGitFailurePassesThroughOtherErrors(t *testing.T) {
-	if err := gitFailure(context.Canceled, "o/r", "main"); !errors.Is(err, context.Canceled) {
+	if err := gitFailure(context.Canceled, "o/r", "github.com", "main"); !errors.Is(err, context.Canceled) {
 		t.Errorf("got %v, want context.Canceled", err)
 	}
 	plain := errors.New("boom")
-	if err := gitFailure(plain, "o/r", "main"); err != plain {
+	if err := gitFailure(plain, "o/r", "github.com", "main"); err != plain {
 		t.Errorf("got %v, want the original error", err)
 	}
 }
