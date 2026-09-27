@@ -10,14 +10,8 @@ import (
 	"strings"
 )
 
-type SkipFunc func(rel, reason string)
-
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0o755)
-}
-
-func closeQuietly(c io.Closer) {
-	_ = c.Close()
 }
 
 func SaveToFile(path string, content io.Reader, perm os.FileMode) error {
@@ -41,68 +35,25 @@ func SaveToFile(path string, content io.Reader, perm os.FileMode) error {
 	return nil
 }
 
-func CopyTree(src, dst string, skip SkipFunc) error {
-	return copyTree(src, dst, src, skip)
-}
-
-func copyTree(src, dst, root string, skip SkipFunc) error {
-	if err := EnsureDir(dst); err != nil {
-		return fmt.Errorf("failed to create destination directory: %w", err)
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return fmt.Errorf("failed to read source directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		var err error
-		switch {
-		case entry.Type()&os.ModeSymlink != 0:
-			err = CopySymlink(srcPath, dstPath, root, skip)
-		case entry.IsDir():
-			err = copyTree(srcPath, dstPath, root, skip)
-		case entry.Type().IsRegular():
-			err = CopyFile(srcPath, dstPath)
-		}
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func CopySymlink(src, dst, root string, skip SkipFunc) error {
+func CopySymlink(src, dst, root string) (skipped string, err error) {
 	target, err := os.Readlink(src)
 	if err != nil {
-		return fmt.Errorf("failed to read symlink: %w", err)
+		return "", fmt.Errorf("failed to read symlink: %w", err)
 	}
-
-	rel, err := filepath.Rel(root, src)
-	if err != nil {
-		rel = filepath.Base(src)
-	}
-	rel = filepath.ToSlash(rel)
-
 	if !linkStaysInside(root, src, target) {
-		report(skip, rel, "points outside the folder")
-		return nil
+		return "points outside the folder", nil
 	}
 
 	if err := removeIfNotDir(dst); err != nil {
-		return err
+		return "", err
 	}
 	if err := EnsureDir(filepath.Dir(dst)); err != nil {
-		return fmt.Errorf("failed to create destination directory: %w", err)
+		return "", fmt.Errorf("failed to create destination directory: %w", err)
 	}
 	if os.Symlink(target, dst) != nil {
-		report(skip, rel, "symlinks can't be created here")
+		skipped = "symlinks can't be created here"
 	}
-	return nil
+	return skipped, nil
 }
 
 // linkStaysInside judges a symlink by its text alone and never follows it: a
@@ -114,12 +65,6 @@ func linkStaysInside(root, link, target string) bool {
 	}
 	rel, err := filepath.Rel(root, filepath.Join(filepath.Dir(link), target))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func report(skip SkipFunc, rel, reason string) {
-	if skip != nil {
-		skip(rel, reason)
-	}
 }
 
 func removeIfNotDir(path string) error {
@@ -143,7 +88,7 @@ func CopyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer closeQuietly(srcFile)
+	defer func() { _ = srcFile.Close() }()
 
 	srcInfo, err := srcFile.Stat()
 	if err != nil {

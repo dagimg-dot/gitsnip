@@ -170,15 +170,13 @@ func copySelection(ctx context.Context, root string, sel selection, output strin
 		}
 
 		if info.Mode()&os.ModeSymlink != 0 {
-			kept := true
-			err := util.CopySymlink(src, dst, base, func(_, reason string) {
-				kept = false
-				rep.Warn(fmt.Sprintf("skipped symlink %s (%s)", file, reason))
-			})
-			if err != nil {
+			skipped, err := util.CopySymlink(src, dst, base)
+			switch {
+			case err != nil:
 				return written, err
-			}
-			if kept {
+			case skipped != "":
+				rep.Warn(fmt.Sprintf("skipped symlink %s (%s)", file, skipped))
+			default:
 				written.files++
 			}
 			continue

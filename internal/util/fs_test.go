@@ -61,40 +61,7 @@ func TestCopyFile(t *testing.T) {
 	}
 }
 
-func TestCopyTree(t *testing.T) {
-	src := t.TempDir()
-	dst := t.TempDir()
-
-	files := map[string]string{
-		"root.txt":            "root",
-		"sub/file.txt":        "sub",
-		"sub/nested/deep.txt": "deep",
-	}
-	for path, content := range files {
-		full := filepath.Join(src, path)
-		os.MkdirAll(filepath.Dir(full), 0o755)
-		os.WriteFile(full, []byte(content), 0o644)
-	}
-
-	target := filepath.Join(dst, "copied")
-	if err := util.CopyTree(src, target, nil); err != nil {
-		t.Fatalf("CopyTree failed: %v", err)
-	}
-
-	for path, content := range files {
-		full := filepath.Join(target, path)
-		data, err := os.ReadFile(full)
-		if err != nil {
-			t.Errorf("file %s: %v", path, err)
-			continue
-		}
-		if string(data) != content {
-			t.Errorf("file %s: got %q, want %q", path, string(data), content)
-		}
-	}
-}
-
-func TestCopyTreeNeverFollowsSymlinks(t *testing.T) {
+func TestCopySymlinkKeepsOnlyLinksThatStayInside(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating symlinks needs extra privileges on Windows")
 	}
@@ -102,59 +69,41 @@ func TestCopyTreeNeverFollowsSymlinks(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "id_rsa")
 	os.WriteFile(outside, []byte("PRIVATE KEY"), 0o600)
 
-	src := t.TempDir()
-	os.MkdirAll(filepath.Join(src, "icons", "deep"), 0o755)
-	os.WriteFile(filepath.Join(src, "icons", "star.svg"), []byte("<svg/>"), 0o644)
-	os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0o644)
-	links := map[string]string{
-		"to-file":          "a.txt",
-		"to-dir":           "icons",
-		"icons/deep/up":    "../../a.txt",
-		"absolute":         outside,
-		"escape":           "../" + filepath.Base(filepath.Dir(outside)) + "/id_rsa",
-		"icons/deep/climb": "../../../x",
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "icons", "deep"), 0o755)
+	cases := []struct {
+		link, target, skipped string
+	}{
+		{"to-file", "a.txt", ""},
+		{"to-dir", "icons", ""},
+		{"icons/deep/up", "../../a.txt", ""},
+		{"absolute", outside, "points outside the folder"},
+		{"escape", "../" + filepath.Base(filepath.Dir(outside)) + "/id_rsa", "points outside the folder"},
+		{"icons/deep/climb", "../../../x", "points outside the folder"},
 	}
-	for link, target := range links {
-		if err := os.Symlink(target, filepath.Join(src, link)); err != nil {
+
+	dst := t.TempDir()
+	for _, tc := range cases {
+		src := filepath.Join(root, filepath.FromSlash(tc.link))
+		if err := os.Symlink(tc.target, src); err != nil {
 			t.Fatal(err)
 		}
-	}
-
-	dst := filepath.Join(t.TempDir(), "out")
-	skipped := map[string]string{}
-	err := util.CopyTree(src, dst, func(rel, reason string) { skipped[rel] = reason })
-	if err != nil {
-		t.Fatalf("CopyTree failed: %v", err)
-	}
-
-	for _, link := range []string{"to-file", "to-dir", "icons/deep/up"} {
-		got, err := os.Readlink(filepath.Join(dst, link))
+		out := filepath.Join(dst, filepath.FromSlash(tc.link))
+		skipped, err := util.CopySymlink(src, out, root)
 		if err != nil {
-			t.Errorf("%s: %v", link, err)
-			continue
+			t.Fatalf("%s: %v", tc.link, err)
 		}
-		if got != links[link] {
-			t.Errorf("%s -> %q, want %q", link, got, links[link])
+		if skipped != tc.skipped {
+			t.Errorf("%s: skipped = %q, want %q", tc.link, skipped, tc.skipped)
 		}
-	}
-
-	for _, link := range []string{"absolute", "escape", "icons/deep/climb"} {
-		if _, err := os.Lstat(filepath.Join(dst, link)); !os.IsNotExist(err) {
-			t.Errorf("%s should have been skipped", link)
-		}
-		if skipped[link] != "points outside the folder" {
-			t.Errorf("%s skip reason = %q", link, skipped[link])
+		got, err := os.Readlink(out)
+		switch {
+		case tc.skipped != "" && err == nil:
+			t.Errorf("%s: created a link to %q, want none", tc.link, got)
+		case tc.skipped == "" && got != tc.target:
+			t.Errorf("%s -> %q, want %q", tc.link, got, tc.target)
 		}
 	}
-
-	filepath.Walk(dst, func(path string, info os.FileInfo, err error) error {
-		if err == nil && info.Mode().IsRegular() {
-			if data, _ := os.ReadFile(path); strings.Contains(string(data), "PRIVATE KEY") {
-				t.Errorf("%s leaked a file from outside the repository", path)
-			}
-		}
-		return nil
-	})
 }
 
 func TestCopyFileReplacesSymlinksInsteadOfWritingThroughThem(t *testing.T) {
