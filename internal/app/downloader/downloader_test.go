@@ -21,6 +21,7 @@ import (
 
 type fixture struct {
 	url     string
+	bare    string
 	head    string
 	feature string
 	bigBlob string
@@ -85,6 +86,7 @@ func newFixture(t *testing.T) fixture {
 
 	return fixture{
 		url:     "file://" + filepath.ToSlash(bare),
+		bare:    bare,
 		head:    git(work, "rev-parse", "trunk"),
 		feature: git(work, "rev-parse", "feature/x"),
 		bigBlob: git(work, "rev-parse", "trunk:big/blob.bin"),
@@ -309,6 +311,28 @@ func TestSparseCheckoutResolvesTreeLinks(t *testing.T) {
 	var appErr *apperr.Error
 	if !errors.As(err, &appErr) || !errors.Is(err, apperr.ErrRefNotFound) || appErr.Hint != `the default branch is "trunk"` {
 		t.Errorf("missing ref in link: got %v (hint %q)", err, appErr.Hint)
+	}
+}
+
+func TestSparseCheckoutPrefersTheLongestRefInLinks(t *testing.T) {
+	fx := newFixture(t)
+	tag := exec.Command("git", "tag", "feature", fx.head)
+	tag.Dir = fx.bare
+	if out, err := tag.CombinedOutput(); err != nil {
+		t.Fatalf("git tag: %v\n%s", err, out)
+	}
+
+	src := parseSource(t, fx.url)
+	src.RefPath = "feature/x/src/components"
+	snap, err := sparseDownload(t, &model.Request{Source: src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Ref != "feature/x" || snap.Commit != fx.feature {
+		t.Errorf("snapshot = %+v, want feature/x at %s", snap, fx.feature)
+	}
+	if _, err := os.Stat(filepath.Join(snap.Dir, "src", "components", "Feature.tsx")); err != nil {
+		t.Error("Feature.tsx from feature/x is missing")
 	}
 }
 

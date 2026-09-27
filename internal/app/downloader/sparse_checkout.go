@@ -47,37 +47,13 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req *model.Requ
 	g := &gitSession{runner: s.runner, rep: rep, env: authEnv(req.Source.URL, req.Token), url: req.Source.URL, repo: req.Source.Display(), ref: req.Ref}
 	repoDir := filepath.Join(dir, "repo")
 
-	paths := req.Paths
-	if req.Source.RefPath != "" {
-		rep.Stage("resolving the branch")
-		ref, rest, err := g.splitRefPath(ctx, req.Source.RefPath)
-		if err != nil {
-			return model.Snapshot{}, err
-		}
-		g.ref = ref
-		if paths, err = withPath(paths, rest); err != nil {
-			return model.Snapshot{}, err
-		}
-	}
-
 	rep.Stage("cloning")
-	rev, obtain := "HEAD", g.clone
-	if isCommitID(g.ref) {
-		rev, obtain = "FETCH_HEAD", g.fetchCommit
+	paths, rev, err := g.obtain(ctx, repoDir, req.Source.RefPath, req.Paths)
+	if err == nil {
+		err = g.checkout(ctx, repoDir, rev, paths)
 	}
-	if err := obtain(ctx, repoDir, sparseRules(paths) != nil); err != nil {
-		return model.Snapshot{}, g.failure(ctx, err)
-	}
-
-	if rules := sparseRules(paths); rules != nil {
-		if err := g.restrict(ctx, repoDir, rules); err != nil {
-			return model.Snapshot{}, err
-		}
-	}
-
-	rep.Stage("fetching " + describePaths(paths))
-	if _, err := g.run(ctx, repoDir, "read-tree", "-mu", rev); err != nil {
-		return model.Snapshot{}, g.failure(ctx, err)
+	if err != nil {
+		return model.Snapshot{}, err
 	}
 
 	commit, err := g.run(ctx, repoDir, "rev-parse", rev)
@@ -102,6 +78,86 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req *model.Requ
 	}
 
 	return model.Snapshot{Dir: repoDir, Ref: ref, Commit: commit, Paths: paths, List: list}, nil
+}
+
+type attempt struct {
+	rev string
+	err error
+}
+
+func (g *gitSession) obtain(ctx context.Context, repoDir, refPath string, paths []pathspec.Pattern) ([]pathspec.Pattern, string, error) {
+	if refPath != "" {
+		return g.obtainLink(ctx, repoDir, refPath, paths)
+	}
+	rev, err := g.fetch(ctx, repoDir, paths)
+	if err != nil {
+		return nil, "", g.failure(ctx, err)
+	}
+	return paths, rev, nil
+}
+
+// obtainLink clones the link's first segment while ls-remote looks for the
+// longest matching branch or tag, since most links name a one-segment ref.
+// If a longer ref matches, the guess is discarded and that ref is cloned.
+func (g *gitSession) obtainLink(ctx context.Context, repoDir, refPath string, paths []pathspec.Pattern) ([]pathspec.Pattern, string, error) {
+	first, extra, _ := strings.Cut(refPath, "/")
+	guess := *g
+	guess.ref = first
+	guessed := make(chan attempt, 1)
+	go func() {
+		guessed <- guess.try(ctx, repoDir, paths, extra)
+	}()
+
+	ref, rest, err := g.splitRefPath(ctx, refPath)
+	early := <-guessed
+	if err != nil {
+		return nil, "", err
+	}
+	g.ref = ref
+	if paths, err = withPath(paths, rest); err != nil {
+		return nil, "", err
+	}
+
+	rev := early.rev
+	if ref == first {
+		err = early.err
+	} else if err = os.RemoveAll(repoDir); err == nil {
+		rev, err = g.fetch(ctx, repoDir, paths)
+	}
+	if err != nil {
+		return nil, "", g.failure(ctx, err)
+	}
+	return paths, rev, nil
+}
+
+func (g *gitSession) try(ctx context.Context, repoDir string, paths []pathspec.Pattern, extra string) attempt {
+	paths, err := withPath(paths, extra)
+	if err != nil {
+		return attempt{err: err}
+	}
+	rev, err := g.fetch(ctx, repoDir, paths)
+	return attempt{rev: rev, err: err}
+}
+
+func (g *gitSession) fetch(ctx context.Context, repoDir string, paths []pathspec.Pattern) (string, error) {
+	partial := sparseRules(paths) != nil
+	if isCommitID(g.ref) {
+		return "FETCH_HEAD", g.fetchCommit(ctx, repoDir, partial)
+	}
+	return "HEAD", g.clone(ctx, repoDir, partial)
+}
+
+func (g *gitSession) checkout(ctx context.Context, repoDir, rev string, paths []pathspec.Pattern) error {
+	if rules := sparseRules(paths); rules != nil {
+		if err := g.restrict(ctx, repoDir, rules); err != nil {
+			return err
+		}
+	}
+	g.rep.Stage("fetching " + describePaths(paths))
+	if _, err := g.run(ctx, repoDir, "read-tree", "-mu", rev); err != nil {
+		return g.failure(ctx, err)
+	}
+	return nil
 }
 
 func (g *gitSession) splitRefPath(ctx context.Context, refPath string) (ref, rest string, err error) {
