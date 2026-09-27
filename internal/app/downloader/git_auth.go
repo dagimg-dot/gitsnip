@@ -8,6 +8,10 @@ import (
 	"strconv"
 )
 
+// authEnv passes the token to git as an HTTP header through GIT_CONFIG_*
+// variables, so it never shows up in argv (visible to ps) or in .git/config.
+// The header is scoped to the remote's host, and the entries are appended after
+// any GIT_CONFIG_COUNT entries the user already set.
 func authEnv(remote, token string) []string {
 	if token == "" {
 		return nil

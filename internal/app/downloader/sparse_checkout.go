@@ -161,6 +161,8 @@ func (g *gitSession) run(ctx context.Context, dir string, args ...string) (strin
 	return out, err
 }
 
+// clone fetches commits and trees but no file contents. read-tree later
+// downloads only the blobs the sparse rules select, in a single batch.
 func (g *gitSession) clone(ctx context.Context, repoDir string) error {
 	args := []string{"clone", "--quiet", "--depth=1", "--filter=blob:none", "--no-checkout", "--no-tags"}
 	if g.ref != "" {
@@ -170,6 +172,8 @@ func (g *gitSession) clone(ctx context.Context, repoDir string) error {
 	return err
 }
 
+// fetchCommit sets up the partial clone by hand because clone --branch only
+// accepts branch and tag names, not commit hashes.
 func (g *gitSession) fetchCommit(ctx context.Context, repoDir string) error {
 	if _, err := g.run(ctx, "", "init", "--quiet", "--", repoDir); err != nil {
 		return err
@@ -190,6 +194,9 @@ func (g *gitSession) fetchCommit(ctx context.Context, repoDir string) error {
 	return nil
 }
 
+// restrict writes non-cone sparse rules straight to .git/info/sparse-checkout.
+// Cone mode can't express single files or globs, and older git releases lack
+// "sparse-checkout set --no-cone".
 func (g *gitSession) restrict(ctx context.Context, repoDir string, rules []string) error {
 	for _, args := range [][]string{
 		{"config", "core.sparseCheckout", "true"},

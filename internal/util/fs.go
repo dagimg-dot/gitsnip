@@ -105,6 +105,9 @@ func CopySymlink(src, dst, root string, skip SkipFunc) error {
 	return nil
 }
 
+// linkStaysInside judges a symlink by its text alone and never follows it: a
+// repository can ship config -> ~/.ssh/id_rsa, and following that would copy
+// the user's own file into the output.
 func linkStaysInside(root, link, target string) bool {
 	if filepath.IsAbs(target) || filepath.VolumeName(target) != "" || strings.HasPrefix(target, "/") || strings.HasPrefix(target, `\`) {
 		return false

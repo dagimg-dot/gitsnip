@@ -52,6 +52,10 @@ func RunGitCommand(ctx context.Context, dir string, env []string, args ...string
 	return stdout.String(), nil
 }
 
+// baseEnv keeps git from prompting for credentials, since a prompt would fight
+// the spinner for the terminal, and forces the C locale because git_errors.go
+// matches git's English messages. With no overall timeout, the low-speed limit
+// is what aborts a stalled transfer, unless the user set their own limits.
 func baseEnv() []string {
 	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 	if os.Getenv("GIT_HTTP_LOW_SPEED_LIMIT") == "" && os.Getenv("GIT_HTTP_LOW_SPEED_TIME") == "" {

@@ -171,6 +171,9 @@ func (u *UI) Fail(message, hint, detail string) {
 	})
 }
 
+// print tries the styled line first. If that write fails or panics, the UI
+// drops to plain text for the rest of the run and writes the same line again
+// without escape codes, so no output is lost.
 func (u *UI) print(build func(Paint) string) {
 	if u.color || u.live {
 		paint := plain

@@ -72,6 +72,8 @@ func (s *Source) Display() string {
 	}
 }
 
+// trailingRef splits "owner/repo/path@ref". An @ right after a slash belongs to
+// the path, as in node_modules/@types.
 func trailingRef(s string) (body, ref string) {
 	if i := strings.LastIndex(s, "@"); i > 0 && i < len(s)-1 && s[i-1] != '/' {
 		return s[:i], s[i+1:]
