@@ -4,7 +4,6 @@ CMD_PATH=./cmd/gitsnip
 
 GOFLAGS ?=
 TEST_FLAGS ?= -v
-LINT_GO ?= go$(shell go list -m -f '{{.GoVersion}}')
 
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -45,7 +44,7 @@ clean:
 
 lint:
 	@echo "Linting..."
-	GOTOOLCHAIN=$(LINT_GO) golangci-lint run ./...
+	golangci-lint run ./...
 
 fmt:
 	go fmt ./...
