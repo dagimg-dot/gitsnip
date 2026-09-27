@@ -1,6 +1,6 @@
 # gitsnip
 
-> A CLI tool to download specific folders from a git repository.
+> Download folders and files from any git repository, without cloning it.
 
 ![showcase](./assets/gitsnip-showcase.gif)
 
@@ -8,13 +8,22 @@
 [![License](https://img.shields.io/github/license/dagimg-dot/gitsnip)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/dagimg-dot/gitsnip/total)](https://github.com/dagimg-dot/gitsnip/releases)
 
+```
+$ gitsnip https://github.com/dagimg-dot/gitsnip/tree/main/internal/app
+✓ dagimg-dot/gitsnip@main · internal/app → ./app   7 files · 12.2 KB · 1.4s
+```
+
 ## Features
 
-- 📂 Download specific folders from any Git repository
-- 🚀 Fast downloads using sparse checkout or API methods
-- 🔒 Support for private repositories
-- 🔧 Multiple download methods (API/sparse checkout)
-- 🔄 Branch selection support
+- Download a folder, a single file, several paths or glob patterns
+- Paste links straight from the browser: GitHub, GitLab, Codeberg/Gitea, Bitbucket and sourcehut
+- Works with any git host, including self-hosted servers and SSH remotes
+- Fetches only what you ask for: a blob-less shallow clone never downloads the rest of the repository
+- Uses the repository's default branch, or any branch, tag or commit you name
+- Private repositories through SSH keys, git credential helpers, or `GH_TOKEN`/`GITHUB_TOKEN`
+- Falls back to the GitHub API when git isn't installed
+- Safe by default: never overwrites files without `--force` and never follows symlinks out of the repository
+- Scriptable: `--json` output, quiet mode and meaningful exit codes
 
 ## Installation
 
@@ -30,129 +39,164 @@ eget dagimg-dot/gitsnip
 go install github.com/dagimg-dot/gitsnip/cmd/gitsnip@latest
 ```
 
-### Manual Installation
+### Manual installation
 
 #### Linux/macOS
 
-1. Download the appropriate binary for your platform from the [Releases page](https://github.com/dagimg-dot/gitsnip/releases).
+1. Download the binary for your platform from the [Releases page](https://github.com/dagimg-dot/gitsnip/releases).
 
-2. Extract the binary:
+2. Extract it:
 ```bash
 tar -xzf gitsnip_<os>_<arch>.tar.gz
 ```
 
-3. Move the binary to a directory in your PATH:
+3. Move it to a directory in your `PATH`:
 ```bash
-# Option 1: Move to user's local bin (recommended)
 mv gitsnip $HOME/.local/bin/
-
-# Option 2: Move to system-wide bin (requires sudo)
-sudo mv gitsnip /usr/local/bin/
 ```
 
-4. Verify installation by opening a new terminal:
+4. Check the installation from a new terminal:
 ```bash
-gitsnip version
+gitsnip --version
 ```
 
-> Note: For Option 1, make sure `$HOME/.local/bin` is in your PATH. Add `export PATH="$HOME/.local/bin:$PATH"` to your shell's config file (.bashrc, .zshrc, etc.) if needed.
+> Make sure `$HOME/.local/bin` is in your `PATH`. Add `export PATH="$HOME/.local/bin:$PATH"` to your shell's config file if it isn't.
 
 #### Windows
 
-1. Download the Windows binary (`gitsnip_windows_amd64.zip`) from the [Releases page](https://github.com/dagimg-dot/gitsnip/releases).
+1. Download `gitsnip_windows_amd64.zip` from the [Releases page](https://github.com/dagimg-dot/gitsnip/releases).
 
-2. Extract the ZIP file using File Explorer or PowerShell:
+2. Extract it:
 ```powershell
 Expand-Archive -Path gitsnip_windows_amd64.zip -DestinationPath C:\Program Files\gitsnip
 ```
 
-3. Add to PATH (Choose one method):
-   - **Using System Properties:**
-     1. Open System Properties (Win + R, type `sysdm.cpl`)
-     2. Go to "Advanced" tab → "Environment Variables"
-     3. Under "System variables", find and select "Path"
-     4. Click "Edit" → "New"
-     5. Add `C:\Program Files\gitsnip`
-
-   - **Using PowerShell (requires admin):**
+3. Add `C:\Program Files\gitsnip` to your `PATH`, either through System Properties → Environment Variables, or from an elevated PowerShell:
 ```powershell
 $oldPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-$newPath = $oldPath + ';C:\Program Files\gitsnip'
-[Environment]::SetEnvironmentVariable('Path', $newPath, 'Machine')
+[Environment]::SetEnvironmentVariable('Path', $oldPath + ';C:\Program Files\gitsnip', 'Machine')
 ```
 
-4. Verify installation by opening a new terminal:
+4. Check the installation from a new terminal:
 ```powershell
-gitsnip version
+gitsnip --version
 ```
 
 ## Usage
 
-Basic usage:
-
-```bash
-gitsnip <repo-url> <subdir> <output-dir>
+```
+gitsnip <source> [path...] [flags]
 ```
 
-### Command Options
+`<source>` names the repository, and optionally a branch and a path inside it. Every other argument is a path to download: a folder, a file, or a glob pattern (quote globs so your shell doesn't expand them).
 
-```bash
-Usage:
-  gitsnip <repository_url> <folder_path> [output_dir] [flags]
-  gitsnip [command]
+### Sources
 
-Available Commands:
-  completion  Generate the autocompletion script for the specified shell
-  help        Help about any command
-  version     Print the version information
+| You type | Meaning |
+|---|---|
+| `owner/repo` | a GitHub repository |
+| `owner/repo@v1.2.0` | a branch, tag or commit of it |
+| `owner/repo/docs` | a path inside it |
+| `https://github.com/owner/repo/tree/main/docs` | a folder link copied from the browser |
+| `https://github.com/owner/repo/blob/main/Makefile` | a file link |
+| `https://gitlab.com/group/sub/project/-/tree/main/config` | GitLab, including nested groups |
+| `https://codeberg.org/owner/repo/src/branch/main/docs` | Codeberg, Gitea and Forgejo |
+| `git.sr.ht/~user/repo` | any host, written without the scheme |
+| `git@github.com:owner/repo.git` | an SSH remote |
+| `file:///path/to/repo.git` | a local repository |
 
-Flags:
-  -b, --branch string     Repository branch to download from (default "main")
-  -h, --help              help for gitsnip
-  -m, --method string     Download method ('api' or 'sparse') (default "sparse")
-  -p, --provider string   Repository provider ('github', more to come)
-  -q, --quiet            Suppress progress output during download
-  -t, --token string     GitHub API token for private repositories or increased rate limits
-```
+Branch names that contain slashes, as in `.../tree/feature/login/src`, are resolved against the remote's real branches and tags.
 
 ### Examples
 
-1. Download a specific folder from a public repository (default method is sparse checkout):
-
 ```bash
-gitsnip https://github.com/user/repo src/components ./my-components
+gitsnip dagimg-dot/gitsnip internal/app
+gitsnip https://github.com/owner/repo/tree/main/docs
+gitsnip owner/repo@v1.2.0 src/lib -o vendor/lib
+gitsnip gitlab.com/group/project 'config/*.yml'
+gitsnip git.sr.ht/~user/tools data/usage.txt 'data/*_linux.json'
+gitsnip owner/repo
 ```
 
-2. Download a specific folder from a public repository using the API method:
+Where the files go:
 
-```bash
-gitsnip https://github.com/user/repo src/components ./my-components -m api
+- A folder is written into a folder of the same name: `src/components` becomes `./components`.
+- A single file is written into the current directory.
+- Several paths keep their structure below their common parent folder.
+- The whole repository goes into a folder named after it.
+- `-o` picks a different folder.
+
+### Flags
+
+```
+-o, --output dir    where to write (default: the folder's name)
+-b, --branch ref    branch, tag or commit (default: the repo's default)
+-m, --method name   auto, sparse or api (default auto)
+-t, --token token   access token (default: $GH_TOKEN or $GITHUB_TOKEN)
+-f, --force         overwrite existing files
+-q, --quiet         print nothing on success
+-v, --verbose       show git commands and API calls
+    --json          print the result as JSON
+-h, --help          show this help
+    --version       print the version
 ```
 
-3. Download from a specific branch:
+### Output
 
-```bash
-gitsnip https://github.com/user/repo docs ./docs -b develop
+Progress and results go to stderr: a spinner on interactive terminals and one summary line when it's done. Errors say what went wrong and what to try next:
+
+```
+$ gitsnip torvalds/linux Documentation -b main
+✗ Branch or tag "main" doesn't exist in torvalds/linux
+  → the default branch is "master"; drop -b to use it
+
+$ gitsnip dagimg-dot/gitsnip internal/ap
+✗ Path "internal/ap" doesn't exist in dagimg-dot/gitsnip@main
+  → did you mean internal/app?
 ```
 
-4. Download from a private repository:
+Colors and animation only appear on a terminal. They are off when the output is piped, when `NO_COLOR` is set, or when `TERM=dumb`, and gitsnip switches to plain text if the terminal rejects them.
+
+For scripts, `--json` prints the result to stdout:
 
 ```bash
-gitsnip https://github.com/user/private-repo config ./config -t YOUR_GITHUB_TOKEN
+$ gitsnip dagimg-dot/gitsnip internal/app --json
+{"repo":"dagimg-dot/gitsnip","url":"https://github.com/dagimg-dot/gitsnip.git","ref":"main","commit":"49eab7956f7ef7b0c9a3425523657138f131a432","method":"sparse","paths":["internal/app"],"output":"/home/you/app","files":7,"bytes":12527,"ms":2858}
 ```
 
-## Contributing
+Exit codes: `0` success, `1` the download failed, `2` the command line was invalid, `130` interrupted.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## Download methods
 
-## License
+| Method | How it works | Needs |
+|---|---|---|
+| `sparse` | Blob-less shallow clone plus a sparse checkout of just the requested paths | git |
+| `api` | One GitHub API call lists the tree, then files download in parallel from raw.githubusercontent.com | github.com only |
+| `auto` (default) | `sparse` when git is installed, otherwise `api` for GitHub | |
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Private repositories
+
+- **SSH:** use an SSH source such as `git@github.com:owner/private.git`, and your SSH agent or keys are used.
+- **Tokens:** set `GH_TOKEN` or `GITHUB_TOKEN`, or pass `--token`. Environment tokens are only sent to github.com. With the git method the token travels as an HTTP header, never inside the URL.
+- **Credential helpers:** git uses any credential helper you have configured.
+
+## Upgrading from v0.1
+
+- The output folder is now set with `-o`. The old `gitsnip <url> <folder> <output>` form still works when the output starts with `./`, `../` or `/`, but prints a deprecation warning.
+- `-b` now defaults to the repository's default branch instead of `main`.
+- `--provider` is no longer needed. The host comes from the source.
+- Existing files are no longer overwritten unless you pass `--force`.
 
 ## Troubleshooting
 
-### Common Issues
+1. **Rate limit exceeded with `--method api`**: set `GITHUB_TOKEN` to raise GitHub's limit, or use the default git method, which has no API limits.
+2. **Repository doesn't exist or is private**: check the name, then use an SSH source or set a token for private repositories.
+3. **Anything else**: run the command again with `-v` to see the git commands and API calls behind the error.
 
-1. **Rate Limit Exceeded**: When using the API method, you might hit GitHub's rate limits. Use a GitHub token to increase the limit or use the sparse checkout method. (See [Usage](#usage))
-2. **Permission Denied**: Make sure you have the correct permissions and token for private repositories.
+## Contributing
 
+Contributions are welcome. Run `make test` and `go vet ./...` before opening a pull request; CI runs the same checks.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
