@@ -2,10 +2,12 @@ package downloader_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,7 +27,9 @@ type fixture struct {
 }
 
 var fixtureFiles = map[string]string{
+	".gitattributes":                "*.bin -diff\n",
 	"README.md":                     "# fixture\n",
+	"src/.gitattributes":            "*.svg -diff\n",
 	"src/components/Button.tsx":     "export const Button = () => null\n",
 	"src/components/icons/star.svg": "<svg/>\n",
 	"data/usage.txt":                "usage\n",
@@ -138,7 +142,7 @@ func TestSparseCheckoutUsesTheDefaultBranchAndSkipsOtherBlobs(t *testing.T) {
 	if snap.Ref != "trunk" || snap.Commit != fx.head {
 		t.Errorf("snapshot = %+v, want ref trunk at %s", snap, fx.head)
 	}
-	if got := strings.Join(checkedOut(t, snap.Dir), " "); got != "src/components/Button.tsx src/components/icons/star.svg" {
+	if got := strings.Join(checkedOut(t, snap.Dir), " "); got != ".gitattributes src/.gitattributes src/components/Button.tsx src/components/icons/star.svg" {
 		t.Errorf("checked out %s", got)
 	}
 
@@ -167,8 +171,44 @@ func TestSparseCheckoutMatchesFilesAndGlobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(checkedOut(t, snap.Dir), " "); got != "data/a_linux.json data/b_linux.json data/usage.txt" {
+	if got := strings.Join(checkedOut(t, snap.Dir), " "); got != ".gitattributes data/a_linux.json data/b_linux.json data/usage.txt" {
 		t.Errorf("checked out %s", got)
+	}
+}
+
+func lazyFetches(t *testing.T, trace string) int {
+	t.Helper()
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for line := range strings.SplitSeq(string(data), "\n") {
+		var event struct {
+			Event string   `json:"event"`
+			Argv  []string `json:"argv"`
+		}
+		if json.Unmarshal([]byte(line), &event) == nil && event.Event == "child_start" &&
+			slices.Contains(event.Argv, "fetch") && slices.Contains(event.Argv, "--stdin") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSparseCheckoutFetchesFilesAndParentAttributesInOneBatch(t *testing.T) {
+	fx := newFixture(t)
+	trace := filepath.Join(t.TempDir(), "trace.json")
+	t.Setenv("GIT_TRACE2_EVENT", trace)
+	snap, err := sparseDownload(t, &model.Request{Source: parseSource(t, fx.url), Paths: patterns(t, "src/components/icons")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(checkedOut(t, snap.Dir), " "); got != ".gitattributes src/.gitattributes src/components/icons/star.svg" {
+		t.Errorf("checked out %s", got)
+	}
+	if n := lazyFetches(t, trace); n > 1 {
+		t.Errorf("git fetched file contents %d times, want one batch", n)
 	}
 }
 

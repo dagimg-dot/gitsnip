@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -263,6 +264,28 @@ func sparseRules(paths []pathspec.Pattern) []string {
 			return nil
 		}
 		rules = append(rules, p.Rule())
+		rules = append(rules, attributeRules(p)...)
+	}
+	slices.Sort(rules)
+	return slices.Compact(rules)
+}
+
+// attributeRules covers the .gitattributes files git reads while checking
+// out the pattern's files. Outside the sparse rules, git would fetch each
+// one in its own round trip instead of in the batch.
+func attributeRules(p pathspec.Pattern) []string {
+	base := p.String()
+	if p.IsGlob() {
+		base = p.Anchor(false)
+	}
+	var rules []string
+	dir := ""
+	for segment := range strings.SplitSeq(base, "/") {
+		rules = append(rules, "/"+path.Join(dir, ".gitattributes"))
+		dir = path.Join(dir, segment)
+	}
+	if p.IsGlob() {
+		rules = append(rules, "/"+path.Join(base, "**", ".gitattributes"))
 	}
 	return rules
 }
