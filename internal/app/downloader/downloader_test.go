@@ -336,6 +336,30 @@ func TestSparseCheckoutPrefersTheLongestRefInLinks(t *testing.T) {
 	}
 }
 
+func TestSparseCheckoutLinksListOnlyBranchesAndTags(t *testing.T) {
+	fx := newFixture(t)
+	pull := exec.Command("git", "update-ref", "refs/pull/1/head", fx.feature)
+	pull.Dir = fx.bare
+	if out, err := pull.CombinedOutput(); err != nil {
+		t.Fatalf("git update-ref: %v\n%s", err, out)
+	}
+	trace := filepath.Join(t.TempDir(), "packets")
+	t.Setenv("GIT_TRACE_PACKET", trace)
+
+	src := parseSource(t, fx.url)
+	src.RefPath = "trunk/src"
+	if _, err := sparseDownload(t, &model.Request{Source: src}); err != nil {
+		t.Fatal(err)
+	}
+	packets, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(packets), "refs/pull/") {
+		t.Error("resolving the link downloaded pull request refs")
+	}
+}
+
 type noGit struct{}
 
 func (noGit) Run(context.Context, string, []string, ...string) (string, error) {

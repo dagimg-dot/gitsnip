@@ -167,7 +167,9 @@ func (g *gitSession) splitRefPath(ctx context.Context, refPath string) (ref, res
 		candidates[i] = strings.Join(segs[:i+1], "/")
 	}
 
-	out, err := g.run(ctx, "", append([]string{"ls-remote", "--", g.url}, candidates...)...)
+	// Without --heads --tags, ls-remote downloads every ref, including
+	// GitHub's pull request refs, and only then filters them by name.
+	out, err := g.run(ctx, "", append([]string{"ls-remote", "--heads", "--tags", "--", g.url}, candidates...)...)
 	if err != nil {
 		return "", "", g.failure(ctx, err)
 	}
