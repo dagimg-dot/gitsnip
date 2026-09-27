@@ -50,7 +50,7 @@ func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep m
 	}
 
 	rep.Stage(fmt.Sprintf("writing %d files", len(sel.files)))
-	written, size, err := writeFiles(ctx, snap.Dir, sel, output, rep)
+	written, size, err := writeFiles(ctx, snap.Dir, sel, output, req.Force, rep)
 	if err != nil {
 		return model.Result{}, err
 	}

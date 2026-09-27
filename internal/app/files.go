@@ -107,9 +107,18 @@ func defaultOutput(sel selection, repo string) string {
 	}
 }
 
-func writeFiles(ctx context.Context, root string, sel selection, output string, rep model.Reporter) (int, int64, error) {
-	_, statErr := os.Lstat(output)
+func writeFiles(ctx context.Context, root string, sel selection, output string, force bool, rep model.Reporter) (int, int64, error) {
+	info, statErr := os.Stat(output)
 	existed := statErr == nil
+	if existed && !info.IsDir() {
+		return 0, 0, apperr.Wrap(apperr.ErrDestinationExists, nil,
+			fmt.Sprintf("%s exists and isn't a folder", displayPath(output)), "pick another folder with -o")
+	}
+	if existed && !force {
+		if err := checkConflicts(sel, output); err != nil {
+			return 0, 0, err
+		}
+	}
 
 	written, size, err := copySelection(ctx, root, sel, output, rep)
 	if err != nil && !existed {
@@ -157,6 +166,35 @@ func copySelection(ctx context.Context, root string, sel selection, output strin
 	}
 
 	return written, size, nil
+}
+
+func checkConflicts(sel selection, output string) error {
+	var clashes []string
+	for _, file := range sel.files {
+		dst := filepath.Join(output, filepath.FromSlash(relativeTo(sel.base, file)))
+		if _, err := os.Lstat(dst); err == nil {
+			clashes = append(clashes, dst)
+		}
+	}
+
+	switch {
+	case len(clashes) == 0:
+		return nil
+	case sel.single:
+		return apperr.Wrap(apperr.ErrDestinationExists, nil,
+			fmt.Sprintf("%s already exists", displayPath(clashes[0])), "pass --force to overwrite it, or -o to write somewhere else")
+	default:
+		return apperr.Wrap(apperr.ErrDestinationExists, nil,
+			fmt.Sprintf("%s already has %d of these files", displayPath(output), len(clashes)), "pass --force to overwrite, or -o to write somewhere else")
+	}
+}
+
+func displayPath(p string) string {
+	sep := string(filepath.Separator)
+	if filepath.IsAbs(p) || p == "." || p == ".." || strings.HasPrefix(p, "."+sep) || strings.HasPrefix(p, ".."+sep) {
+		return p
+	}
+	return "." + sep + p
 }
 
 func relativeTo(base, file string) string {

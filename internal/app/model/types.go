@@ -19,6 +19,7 @@ type Request struct {
 	Output string
 	Token  string
 	Method Method
+	Force  bool
 }
 
 type Snapshot struct {

@@ -19,6 +19,7 @@ var (
 	token    string
 	provider string
 	quiet    bool
+	force    bool
 
 	rootCmd = &cobra.Command{
 		Use:   "gitsnip <repository_url> <folder_path> [output_dir]",
@@ -89,6 +90,7 @@ Arguments:
 				Output: output,
 				Token:  token,
 				Method: methodType,
+				Force:  force,
 			}
 
 			if !quiet {
@@ -146,4 +148,5 @@ func init() {
 	rootCmd.Flags().StringVarP(&token, "token", "t", "", "GitHub API token for private repositories or increased rate limits")
 	rootCmd.Flags().StringVarP(&provider, "provider", "p", "", "Repository provider ('github', more to come)")
 	rootCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress output during download")
+	rootCmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite files that already exist")
 }

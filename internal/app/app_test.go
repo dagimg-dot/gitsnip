@@ -283,3 +283,54 @@ func TestRunUsesThePathsTheDownloaderResolved(t *testing.T) {
 		t.Errorf("result = %+v", res)
 	}
 }
+
+func TestRunRefusesToOverwriteExistingFiles(t *testing.T) {
+	inTempDir(t)
+	os.MkdirAll("lib", 0o755)
+	os.WriteFile("lib/a.txt", []byte("mine"), 0o644)
+
+	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Paths: patterns(t, "src/lib")}, model.Discard{})
+	want := "." + string(filepath.Separator) + "lib already has 1 of these files"
+	if !errors.Is(err, apperr.ErrDestinationExists) || err.Error() != want {
+		t.Fatalf("got %v, want %q", err, want)
+	}
+	assertFile(t, "lib/a.txt", "mine")
+	assertMissing(t, "lib/sub")
+
+	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Paths: patterns(t, "src/lib"), Force: true}, model.Discard{}); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, "lib/a.txt", "a")
+	assertFile(t, "lib/sub/b.txt", "b")
+}
+
+func TestRunNamesTheSingleFileThatWouldBeOverwritten(t *testing.T) {
+	inTempDir(t)
+	os.WriteFile("a.txt", []byte("mine"), 0o644)
+	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Paths: patterns(t, "src/lib/a.txt")}, model.Discard{})
+	if want := "." + string(filepath.Separator) + "a.txt already exists"; err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %q", err, want)
+	}
+	assertFile(t, "a.txt", "mine")
+}
+
+func TestRunMergesIntoAFolderWithoutClashes(t *testing.T) {
+	inTempDir(t)
+	os.MkdirAll("lib", 0o755)
+	os.WriteFile("lib/notes.md", []byte("keep"), 0o644)
+	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, "lib/notes.md", "keep")
+	assertFile(t, "lib/a.txt", "a")
+}
+
+func TestRunRejectsAFileWhereTheFolderShouldGo(t *testing.T) {
+	inTempDir(t)
+	os.WriteFile("lib", []byte("not a folder"), 0o644)
+	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Paths: patterns(t, "src/lib"), Force: true}, model.Discard{})
+	if !errors.Is(err, apperr.ErrDestinationExists) {
+		t.Fatalf("got %v, want ErrDestinationExists", err)
+	}
+	assertFile(t, "lib", "not a folder")
+}

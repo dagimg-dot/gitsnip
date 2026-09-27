@@ -17,6 +17,7 @@ var (
 	ErrGitNotInstalled        = errors.New("git is not installed")
 	ErrGitCommandFailed       = errors.New("git command failed")
 	ErrUnsupported            = errors.New("unsupported")
+	ErrDestinationExists      = errors.New("destination already exists")
 )
 
 type Error struct {
