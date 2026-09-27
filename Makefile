@@ -4,6 +4,7 @@ CMD_PATH=./cmd/gitsnip
 
 GOFLAGS ?=
 TEST_FLAGS ?= -v
+LINT_GO ?= go$(shell go list -m -f '{{.GoVersion}}')
 
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -16,7 +17,7 @@ LDFLAGS := -s -w \
   -X github.com/dagimg-dot/gitsnip/internal/cli.buildDate=$(BUILD_DATE) \
   -X github.com/dagimg-dot/gitsnip/internal/cli.builtBy=$(BUILD_BY)
 
-.PHONY: all build clean run run-build lint lint-fix test test-v setup-hooks release
+.PHONY: all build clean run run-build lint lint-fix fmt check-fmt vet test test-v setup-hooks release
 
 all: build
 
@@ -44,7 +45,21 @@ clean:
 
 lint:
 	@echo "Linting..."
+	GOTOOLCHAIN=$(LINT_GO) golangci-lint run ./...
+
+fmt:
 	go fmt ./...
+
+check-fmt:
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then \
+		echo "Unformatted files:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+
+vet:
+	go vet ./...
 
 test:
 	@echo "Running tests..."
