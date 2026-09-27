@@ -87,7 +87,11 @@ Arguments:
 			if !quiet {
 				fmt.Printf("Repository URL: %s\n", repoURL)
 				fmt.Printf("Folder Path:    %s\n", folderPath)
-				fmt.Printf("Target Branch:  %s\n", branch)
+				shownBranch := branch
+				if shownBranch == "" {
+					shownBranch = "(default)"
+				}
+				fmt.Printf("Target Branch:  %s\n", shownBranch)
 				fmt.Printf("Download Method: %s\n", method)
 				fmt.Printf("Output Dir:     %s\n", outputDir)
 				fmt.Printf("Provider:       %s\n", provider)
@@ -131,7 +135,7 @@ func Execute() error {
 // init is called by Go before main()
 func init() {
 	// TODO: use PersistentFlags if i want flags to be available to subcommands as well
-	rootCmd.Flags().StringVarP(&branch, "branch", "b", "main", "Repository branch to download from")
+	rootCmd.Flags().StringVarP(&branch, "branch", "b", "", "Branch, tag or commit to download from (default: the repository's default branch)")
 	rootCmd.Flags().StringVarP(&method, "method", "m", "sparse", "Download method ('api' or 'sparse')")
 	rootCmd.Flags().StringVarP(&token, "token", "t", "", "GitHub API token for private repositories or increased rate limits")
 	rootCmd.Flags().StringVarP(&provider, "provider", "p", "", "Repository provider ('github', more to come)")
