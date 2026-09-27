@@ -16,7 +16,7 @@ LDFLAGS := -s -w \
   -X github.com/dagimg-dot/gitsnip/internal/cli.buildDate=$(BUILD_DATE) \
   -X github.com/dagimg-dot/gitsnip/internal/cli.builtBy=$(BUILD_BY)
 
-.PHONY: all build clean run run-build lint lint-fix fmt check-fmt vet test test-v setup-hooks release
+.PHONY: all build clean run run-build lint fmt check-fmt vet test
 
 all: build
 
@@ -30,10 +30,6 @@ run:
 	go run $(GOFLAGS) $(CMD_PATH) $(filter-out $@,$(MAKECMDGOALS))
 
 run-build: build
-	@echo "Running $(BINARY_PATH) $(filter-out $@,$(MAKECMDGOALS))..."
-	./$(BINARY_PATH) $(filter-out $@,$(MAKECMDGOALS))
-
-run-binary:
 	@echo "Running $(BINARY_PATH) $(filter-out $@,$(MAKECMDGOALS))..."
 	./$(BINARY_PATH) $(filter-out $@,$(MAKECMDGOALS))
 
@@ -63,17 +59,3 @@ vet:
 test:
 	@echo "Running tests..."
 	go test $(GOFLAGS) $(TEST_FLAGS) ./...
-
-test-v:
-	@echo "Running tests (verbose)..."
-	go test $(GOFLAGS) -v ./...
-
-release:
-	@echo "Bumping version..."
-	git tag v$(VERSION)
-	git push origin v$(VERSION)
-
-local-release: 
-	@echo "Creating release for $(VERSION)..."
-	@mkdir -p dist
-	GOOS=linux GOARCH=amd64 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o dist/$(BINARY_NAME)_linux_$(VERSION)_$(shell go env GOARCH) $(CMD_PATH)
