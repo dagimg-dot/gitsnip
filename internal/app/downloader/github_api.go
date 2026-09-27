@@ -49,16 +49,20 @@ func (g *gitHubAPIDownloader) Download() error {
 		}
 	}
 
-	if err := util.EnsureDir(g.opts.OutputDir); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
 	if !g.opts.Quiet {
 		fmt.Printf("Downloading directory %s from %s/%s (branch: %s)...\n",
 			g.opts.Subdir, owner, repo, g.opts.Branch)
 	}
 
-	return g.downloadDirectory(owner, repo, g.opts.Subdir, g.opts.OutputDir)
+	items, isFile, err := g.getContents(owner, repo, g.opts.Subdir)
+	if err != nil {
+		return err
+	}
+
+	if isFile {
+		return g.downloadFile(items[0].DownloadURL, g.opts.OutputDir)
+	}
+	return g.downloadDirectory(owner, repo, items, g.opts.OutputDir)
 }
 
 func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
@@ -77,21 +81,21 @@ func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
 	return "", "", fmt.Errorf("URL does not match GitHub repository pattern: %s", repoURL)
 }
 
-func (g *gitHubAPIDownloader) downloadDirectory(owner, repo, path, outputDir string) error {
-	items, err := g.getContents(owner, repo, path)
-	if err != nil {
-		return err
+func (g *gitHubAPIDownloader) downloadDirectory(owner, repo string, items []GitHubContentItem, outputDir string) error {
+	if err := util.EnsureDir(outputDir); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	for _, item := range items {
 		targetPath := filepath.Join(outputDir, item.Name)
 
 		if item.Type == "dir" {
-			if err := util.EnsureDir(targetPath); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", targetPath, err)
+			children, _, err := g.getContents(owner, repo, item.Path)
+			if err != nil {
+				return err
 			}
 
-			if err := g.downloadDirectory(owner, repo, item.Path, targetPath); err != nil {
+			if err := g.downloadDirectory(owner, repo, children, targetPath); err != nil {
 				return err
 			}
 		} else if item.Type == "file" {
@@ -107,7 +111,7 @@ func (g *gitHubAPIDownloader) downloadDirectory(owner, repo, path, outputDir str
 	return nil
 }
 
-func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubContentItem, error) {
+func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubContentItem, bool, error) {
 	apiURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s",
 		GitHubAPIBaseURL, owner, repo, url.PathEscape(path))
 
@@ -117,12 +121,11 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubCon
 
 	req, err := util.NewGitHubRequest("GET", apiURL, g.opts.Token)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, false, fmt.Errorf("failed to create request: %w", err)
 	}
-
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return nil, &errors.AppError{
+		return nil, false, &errors.AppError{
 			Err:     errors.ErrNetworkFailure,
 			Message: "Failed to connect to GitHub API",
 			Hint:    "Check your internet connection and try again",
@@ -133,19 +136,27 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubCon
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := strings.TrimSpace(string(body))
-		return nil, errors.ParseGitHubAPIError(resp.StatusCode, bodyStr)
+		return nil, false, errors.ParseGitHubAPIError(resp.StatusCode, bodyStr)
+	}
+
+	var raw json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, false, fmt.Errorf("failed to parse API response: %w", err)
+	}
+
+	if len(raw) > 0 && raw[0] == '{' {
+		var item GitHubContentItem
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return nil, false, fmt.Errorf("failed to parse API response: %w", err)
+		}
+		return []GitHubContentItem{item}, item.Type == "file", nil
 	}
 
 	var items []GitHubContentItem
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		var item GitHubContentItem
-		if errSingle := json.Unmarshal([]byte(err.Error()), &item); errSingle == nil {
-			return []GitHubContentItem{item}, nil
-		}
-		return nil, fmt.Errorf("failed to parse API response: %w", err)
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, false, fmt.Errorf("failed to parse API response: %w", err)
 	}
-
-	return items, nil
+	return items, false, nil
 }
 
 func (g *gitHubAPIDownloader) downloadFile(url, outputPath string) error {
