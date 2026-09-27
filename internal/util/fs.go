@@ -11,14 +11,6 @@ func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0755)
 }
 
-func FileExists(path string) bool {
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
-}
-
 func SaveToFile(path string, content io.Reader) error {
 	dir := filepath.Dir(path)
 	if err := EnsureDir(dir); err != nil {

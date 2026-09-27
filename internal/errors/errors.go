@@ -15,10 +15,6 @@ var (
 	ErrInvalidURL             = errors.New("invalid repository URL")
 	ErrGitNotInstalled        = errors.New("git is not installed")
 	ErrGitCommandFailed       = errors.New("git command failed")
-	ErrGitCloneFailed         = errors.New("git clone failed")
-	ErrGitFetchFailed         = errors.New("git fetch failed")
-	ErrGitCheckoutFailed      = errors.New("git checkout failed")
-	ErrGitInvalidRepository   = errors.New("invalid git repository")
 )
 
 type AppError struct {

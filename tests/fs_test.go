@@ -26,21 +26,6 @@ func TestEnsureDir_existing(t *testing.T) {
 	}
 }
 
-func TestFileExists(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.txt")
-	if util.FileExists(path) {
-		t.Error("FileExists returned true for non-existent file")
-	}
-	os.WriteFile(path, []byte("hello"), 0644)
-	if !util.FileExists(path) {
-		t.Error("FileExists returned false for existing file")
-	}
-	if util.FileExists(dir) {
-		t.Error("FileExists returned true for a directory")
-	}
-}
-
 func TestSaveToFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "test.txt")
 	if err := util.SaveToFile(path, strings.NewReader("hello world")); err != nil {
