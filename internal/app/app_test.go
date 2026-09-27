@@ -11,22 +11,15 @@ import (
 
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
+	"github.com/dagimg-dot/gitsnip/internal/pathspec"
 )
 
 type fakeDownloader struct {
-	files map[string]string
-	links map[string]string
-	err   error
-	dir   string
-}
-
-type recorder struct {
-	model.Discard
-	warnings []string
-}
-
-func (r *recorder) Warn(text string) {
-	r.warnings = append(r.warnings, text)
+	files    map[string]string
+	links    map[string]string
+	unusable []string
+	err      error
+	dir      string
 }
 
 func (f *fakeDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
@@ -48,13 +41,45 @@ func (f *fakeDownloader) Download(ctx context.Context, req model.Request, dir st
 			return model.Snapshot{}, err
 		}
 	}
-	return model.Snapshot{Dir: dir, Ref: req.Branch}, nil
+	for _, name := range f.unusable {
+		if err := os.Chmod(filepath.Join(dir, filepath.FromSlash(name)), 0); err != nil {
+			return model.Snapshot{}, err
+		}
+	}
+	return model.Snapshot{Dir: dir, Ref: "main", Commit: "abc123"}, nil
+}
+
+type recorder struct {
+	model.Discard
+	warnings []string
+}
+
+func (r *recorder) Warn(text string) {
+	r.warnings = append(r.warnings, text)
 }
 
 var repoFiles = map[string]string{
 	"README.md":         "readme",
 	"src/lib/a.txt":     "a",
 	"src/lib/sub/b.txt": "b",
+	"data/usage.txt":    "usage",
+	"data/x_linux.json": "x",
+	"data/y_linux.json": "y",
+	"data/z_mac.json":   "z",
+}
+
+func patterns(t *testing.T, raws ...string) []pathspec.Pattern {
+	t.Helper()
+	ps, err := pathspec.ParseAll(raws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ps
+}
+
+func inTempDir(t *testing.T) {
+	t.Helper()
+	t.Chdir(t.TempDir())
 }
 
 func assertFile(t *testing.T, path, want string) {
@@ -70,54 +95,126 @@ func assertFile(t *testing.T, path, want string) {
 
 func assertMissing(t *testing.T, path string) {
 	t.Helper()
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Errorf("%s should not exist (stat error: %v)", path, err)
 	}
 }
 
-func TestRunCopiesTheRequestedFolder(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "lib")
+func TestRunWritesAFolderIntoItsOwnName(t *testing.T) {
+	inTempDir(t)
 	dl := &fakeDownloader{files: repoFiles}
 
-	res, err := run(context.Background(), dl, model.Request{Subdir: "src/lib", OutputDir: out, Branch: "main"}, model.Discard{})
+	res, err := run(context.Background(), dl, model.Request{Paths: patterns(t, "src/lib")}, model.Discard{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Output != out || res.Ref != "main" {
+	if res.Output != "lib" || res.Files != 2 || res.Bytes != 2 || res.Ref != "main" || res.Commit != "abc123" {
 		t.Errorf("result = %+v", res)
 	}
-	assertFile(t, filepath.Join(out, "a.txt"), "a")
-	assertFile(t, filepath.Join(out, "sub", "b.txt"), "b")
-	assertMissing(t, filepath.Join(out, "README.md"))
+	assertFile(t, "lib/a.txt", "a")
+	assertFile(t, "lib/sub/b.txt", "b")
+	assertMissing(t, "lib/README.md")
 	assertMissing(t, dl.dir)
 }
 
-func TestRunCopiesASingleFile(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "a.txt")
-	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Subdir: "src/lib/a.txt", OutputDir: out}, model.Discard{}); err != nil {
+func TestRunWritesASingleFileIntoTheCurrentDirectory(t *testing.T) {
+	inTempDir(t)
+	res, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Paths: patterns(t, "src/lib/a.txt")}, model.Discard{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	assertFile(t, out, "a")
+	if res.Output != "." || res.Files != 1 {
+		t.Errorf("result = %+v", res)
+	}
+	assertFile(t, "a.txt", "a")
+}
+
+func TestRunKeepsStructureBelowTheCommonParent(t *testing.T) {
+	inTempDir(t)
+	res, err := run(context.Background(), &fakeDownloader{files: repoFiles},
+		model.Request{Paths: patterns(t, "data/usage.txt", "data/*_linux.json")}, model.Discard{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "data" || res.Files != 3 {
+		t.Errorf("result = %+v", res)
+	}
+	assertFile(t, "data/usage.txt", "usage")
+	assertFile(t, "data/x_linux.json", "x")
+	assertFile(t, "data/y_linux.json", "y")
+	assertMissing(t, "data/z_mac.json")
+}
+
+func TestRunNamesAWholeRepositoryAfterIt(t *testing.T) {
+	inTempDir(t)
+	res, err := run(context.Background(), &fakeDownloader{files: repoFiles},
+		model.Request{RepoURL: "https://github.com/o/snipped.git"}, model.Discard{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "snipped" || res.Files != len(repoFiles) {
+		t.Errorf("result = %+v", res)
+	}
+	assertFile(t, "snipped/README.md", "readme")
+	assertFile(t, "snipped/src/lib/sub/b.txt", "b")
+}
+
+func TestRunHonorsAnExplicitOutput(t *testing.T) {
+	inTempDir(t)
+	if _, err := run(context.Background(), &fakeDownloader{files: repoFiles},
+		model.Request{Paths: patterns(t, "src/lib/a.txt"), Output: "vendor"}, model.Discard{}); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, "vendor/a.txt", "a")
 }
 
 func TestRunReportsMissingPaths(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "nope")
-	_, err := run(context.Background(), &fakeDownloader{files: repoFiles}, model.Request{Subdir: "nope", OutputDir: out}, model.Discard{})
-	if !errors.Is(err, apperr.ErrPathNotFound) {
-		t.Errorf("got %v, want ErrPathNotFound", err)
+	inTempDir(t)
+	cases := map[string]string{
+		"nope":      `Path "nope" doesn't exist in the repository`,
+		"docs/*.md": `No files match "docs/*.md"`,
 	}
-	assertMissing(t, out)
+	for raw, want := range cases {
+		_, err := run(context.Background(), &fakeDownloader{files: repoFiles},
+			model.Request{Paths: patterns(t, "src/lib", raw), Output: "out"}, model.Discard{})
+		if !errors.Is(err, apperr.ErrPathNotFound) || err.Error() != want {
+			t.Errorf("%s: got %v, want %q", raw, err, want)
+		}
+		assertMissing(t, "out")
+	}
 }
 
 func TestRunLeavesNothingBehindWhenTheFetchFails(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "lib")
+	inTempDir(t)
 	boom := errors.New("boom")
 	dl := &fakeDownloader{err: boom}
-	if _, err := run(context.Background(), dl, model.Request{Subdir: "src/lib", OutputDir: out}, model.Discard{}); !errors.Is(err, boom) {
+	if _, err := run(context.Background(), dl, model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); !errors.Is(err, boom) {
 		t.Errorf("got %v, want the download error", err)
 	}
-	assertMissing(t, out)
+	assertMissing(t, "lib")
 	assertMissing(t, dl.dir)
+}
+
+func TestRunRemovesAPartialOutputWhenWritingFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a file the current user can't read")
+	}
+	inTempDir(t)
+	dl := &fakeDownloader{files: repoFiles, unusable: []string{"src/lib/sub/b.txt"}}
+	if _, err := run(context.Background(), dl, model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); err == nil {
+		t.Fatal("expected the unreadable file to fail the copy")
+	}
+	assertMissing(t, "lib")
+}
+
+func TestRunStopsWhenCancelled(t *testing.T) {
+	inTempDir(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := run(ctx, &fakeDownloader{files: repoFiles}, model.Request{Paths: patterns(t, "src/lib")}, model.Discard{}); !errors.Is(err, context.Canceled) {
+		t.Errorf("got %v, want context.Canceled", err)
+	}
+	assertMissing(t, "lib")
 }
 
 func TestRunNeverCopiesThroughSymlinks(t *testing.T) {
@@ -135,34 +232,38 @@ func TestRunNeverCopiesThroughSymlinks(t *testing.T) {
 	}
 
 	t.Run("requested path is a symlink", func(t *testing.T) {
-		out := filepath.Join(t.TempDir(), "docs")
+		inTempDir(t)
 		rec := &recorder{}
-		if _, err := run(context.Background(), dl(), model.Request{Subdir: "docs", OutputDir: out}, rec); err != nil {
+		if _, err := run(context.Background(), dl(), model.Request{Paths: patterns(t, "docs"), Output: "out"}, rec); err != nil {
 			t.Fatal(err)
 		}
-		assertMissing(t, out)
+		assertMissing(t, "out")
 		if strings.Join(rec.warnings, "\n") != "skipped symlink docs (points outside the folder)" {
 			t.Errorf("warnings = %q", rec.warnings)
 		}
 	})
 
 	t.Run("requested path goes through a symlink", func(t *testing.T) {
-		out := filepath.Join(t.TempDir(), "id_rsa")
-		_, err := run(context.Background(), dl(), model.Request{Subdir: "docs/id_rsa", OutputDir: out}, model.Discard{})
+		inTempDir(t)
+		_, err := run(context.Background(), dl(), model.Request{Paths: patterns(t, "docs/id_rsa"), Output: "out"}, model.Discard{})
 		if !errors.Is(err, apperr.ErrPathNotFound) {
 			t.Errorf("got %v, want ErrPathNotFound", err)
 		}
-		assertMissing(t, out)
+		assertMissing(t, "out")
 	})
 
 	t.Run("folder contains a symlink", func(t *testing.T) {
-		out := filepath.Join(t.TempDir(), "lib")
+		inTempDir(t)
 		rec := &recorder{}
-		if _, err := run(context.Background(), dl(), model.Request{Subdir: "src/lib", OutputDir: out}, rec); err != nil {
+		res, err := run(context.Background(), dl(), model.Request{Paths: patterns(t, "src/lib")}, rec)
+		if err != nil {
 			t.Fatal(err)
 		}
-		assertFile(t, filepath.Join(out, "a.txt"), "a")
-		assertMissing(t, filepath.Join(out, "key"))
+		assertFile(t, "lib/a.txt", "a")
+		assertMissing(t, "lib/key")
+		if res.Files != 2 {
+			t.Errorf("files = %d, want the skipped link left out", res.Files)
+		}
 		if strings.Join(rec.warnings, "\n") != "skipped symlink src/lib/key (points outside the folder)" {
 			t.Errorf("warnings = %q", rec.warnings)
 		}

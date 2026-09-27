@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/dagimg-dot/gitsnip/internal/app"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
+	"github.com/dagimg-dot/gitsnip/internal/pathspec"
 	"github.com/spf13/cobra"
 )
 
@@ -50,15 +50,17 @@ Arguments:
 
 			repoURL := args[0]
 			folderPath := args[1]
-			outputDir := "" // default
-
-			if len(args) == 3 {
-				outputDir = args[2]
-			} else {
-				outputDir = filepath.Base(folderPath)
+			patterns, err := pathspec.ParseAll([]string{folderPath})
+			if err != nil {
+				return err
 			}
-			// Normalize folder path to use forward slashes
-			folderPath = strings.ReplaceAll(folderPath, "\\", "/")
+
+			output := ""
+			outputDir := filepath.Base(folderPath)
+			if len(args) == 3 {
+				output = args[2]
+				outputDir = output
+			}
 
 			if provider == "" {
 				provider = "github"
@@ -73,13 +75,13 @@ Arguments:
 			// TODO: add other providers when supported
 
 			req := model.Request{
-				RepoURL:   repoURL,
-				Subdir:    folderPath,
-				OutputDir: outputDir,
-				Branch:    branch,
-				Token:     token,
-				Method:    methodType,
-				Provider:  providerType,
+				RepoURL:  repoURL,
+				Ref:      branch,
+				Paths:    patterns,
+				Output:   output,
+				Token:    token,
+				Method:   methodType,
+				Provider: providerType,
 			}
 
 			if !quiet {
@@ -97,7 +99,7 @@ Arguments:
 				rep = linePrinter{}
 			}
 
-			_, err := app.Download(cmd.Context(), req, rep)
+			_, err = app.Download(cmd.Context(), req, rep)
 			var appErr *apperr.Error
 			if errors.As(err, &appErr) {
 				cmd.SilenceUsage = true

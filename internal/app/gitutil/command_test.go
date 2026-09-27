@@ -19,7 +19,7 @@ func requireGit(t *testing.T) {
 
 func TestRunGitCommandCapturesStderr(t *testing.T) {
 	requireGit(t)
-	_, err := gitutil.RunGitCommand(context.Background(), t.TempDir(), "rev-parse", "--verify", "no-such-ref")
+	_, err := gitutil.RunGitCommand(context.Background(), t.TempDir(), nil, "rev-parse", "--verify", "no-such-ref")
 	var gerr *gitutil.Error
 	if !errors.As(err, &gerr) {
 		t.Fatalf("got %T %v, want *gitutil.Error", err, err)
@@ -39,7 +39,7 @@ func TestRunGitCommandIsNonInteractiveAndEnglish(t *testing.T) {
 	}
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
 	t.Setenv("LC_ALL", "de_DE.UTF-8")
-	out, err := gitutil.RunGitCommand(context.Background(), t.TempDir(),
+	out, err := gitutil.RunGitCommand(context.Background(), t.TempDir(), nil,
 		"-c", `alias.env=!printf '%s %s' "$GIT_TERMINAL_PROMPT" "$LC_ALL"`, "env")
 	if err != nil {
 		t.Fatal(err)

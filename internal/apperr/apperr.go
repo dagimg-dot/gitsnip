@@ -16,6 +16,7 @@ var (
 	ErrInvalidURL             = errors.New("invalid repository URL")
 	ErrGitNotInstalled        = errors.New("git is not installed")
 	ErrGitCommandFailed       = errors.New("git command failed")
+	ErrUnsupported            = errors.New("unsupported")
 )
 
 type Error struct {

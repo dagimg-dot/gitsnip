@@ -34,10 +34,10 @@ func redact(s string) string {
 	return credentials.ReplaceAllString(s, "${1}***@")
 }
 
-func RunGitCommand(ctx context.Context, dir string, args ...string) (string, error) {
+func RunGitCommand(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), env...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -54,22 +54,10 @@ func IsGitInstalled() bool {
 	return err == nil
 }
 
-func CreateTempDir() (string, error) {
-	tempDir, err := os.MkdirTemp("", "gitsnip-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temporary directory: %w", err)
-	}
-	return tempDir, nil
-}
-
-func CleanupTempDir(dir string) error {
-	return os.RemoveAll(dir)
-}
-
 type RealRunner struct{}
 
-func (RealRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {
-	return RunGitCommand(ctx, dir, args...)
+func (RealRunner) Run(ctx context.Context, dir string, env []string, args ...string) (string, error) {
+	return RunGitCommand(ctx, dir, env, args...)
 }
 
 func (RealRunner) HasGit() bool {

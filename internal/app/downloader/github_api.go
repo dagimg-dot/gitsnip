@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
+	"github.com/dagimg-dot/gitsnip/internal/pathspec"
 	"github.com/dagimg-dot/gitsnip/internal/util"
 )
 
@@ -57,24 +58,36 @@ func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, d
 		}
 	}
 
-	rep.Stage(fmt.Sprintf("Downloading directory %s from %s/%s (branch: %s)...", req.Subdir, owner, repo, req.Branch))
+	paths := req.Paths
+	if len(paths) == 0 {
+		paths = []pathspec.Pattern{{}}
+	}
 
 	d := &apiDownload{gitHubAPIDownloader: g, ctx: ctx, req: req, rep: rep, owner: owner, repo: repo}
-	items, isFile, err := d.getContents(req.Subdir)
-	if err != nil {
-		return model.Snapshot{}, err
+	for _, p := range paths {
+		if p.IsGlob() {
+			return model.Snapshot{}, apperr.Wrap(apperr.ErrUnsupported, nil,
+				fmt.Sprintf("The api method can't match %q yet", p), "use --method sparse for glob patterns")
+		}
+
+		rep.Stage(fmt.Sprintf("Downloading %s from %s/%s...", p, owner, repo))
+		items, isFile, err := d.getContents(p.String())
+		if err != nil {
+			return model.Snapshot{}, err
+		}
+
+		target := filepath.Join(dir, filepath.FromSlash(p.String()))
+		if isFile {
+			err = d.downloadFile(items[0].DownloadURL, target)
+		} else {
+			err = d.downloadDirectory(items, target)
+		}
+		if err != nil {
+			return model.Snapshot{}, err
+		}
 	}
 
-	target := filepath.Join(dir, filepath.FromSlash(req.Subdir))
-	if isFile {
-		err = d.downloadFile(items[0].DownloadURL, target)
-	} else {
-		err = d.downloadDirectory(items, target)
-	}
-	if err != nil {
-		return model.Snapshot{}, err
-	}
-	return model.Snapshot{Dir: dir, Ref: req.Branch}, nil
+	return model.Snapshot{Dir: dir, Ref: req.Ref}, nil
 }
 
 func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
@@ -117,8 +130,8 @@ func (d *apiDownload) downloadDirectory(items []GitHubContentItem, outputDir str
 
 func (d *apiDownload) getContents(path string) ([]GitHubContentItem, bool, error) {
 	apiURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s", d.baseURL, d.owner, d.repo, url.PathEscape(path))
-	if d.req.Branch != "" {
-		apiURL = fmt.Sprintf("%s?ref=%s", apiURL, url.QueryEscape(d.req.Branch))
+	if d.req.Ref != "" {
+		apiURL = fmt.Sprintf("%s?ref=%s", apiURL, url.QueryEscape(d.req.Ref))
 	}
 
 	req, err := util.NewGitHubRequest(d.ctx, http.MethodGet, apiURL, d.req.Token)

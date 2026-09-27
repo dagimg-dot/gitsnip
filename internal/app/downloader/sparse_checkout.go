@@ -2,16 +2,20 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
+	"github.com/dagimg-dot/gitsnip/internal/pathspec"
 )
 
 type GitRunner interface {
-	Run(ctx context.Context, dir string, args ...string) (string, error)
+	Run(ctx context.Context, dir string, env []string, args ...string) (string, error)
 	HasGit() bool
 }
 
@@ -23,73 +27,183 @@ func NewSparseCheckoutDownloader(runner GitRunner) Downloader {
 	return &sparseCheckoutDownloader{runner: runner}
 }
 
+type gitSession struct {
+	runner GitRunner
+	rep    model.Reporter
+	env    []string
+	url    string
+	repo   string
+	ref    string
+}
+
 func (s *sparseCheckoutDownloader) Download(ctx context.Context, req model.Request, dir string, rep model.Reporter) (model.Snapshot, error) {
 	if !s.runner.HasGit() {
-		return model.Snapshot{}, &apperr.Error{
-			Err:     apperr.ErrGitNotInstalled,
-			Message: "Git is not installed on this system",
-			Hint:    "Please install Git to use the sparse checkout method",
-		}
+		return model.Snapshot{}, apperr.Wrap(apperr.ErrGitNotInstalled, nil,
+			"Git isn't installed", "install git, or use --method api for GitHub repositories")
 	}
 
-	if req.Branch == "" {
-		rep.Stage(fmt.Sprintf("Downloading directory %s from %s (default branch) using sparse checkout...", req.Subdir, req.RepoURL))
+	remote := remoteURL(req.RepoURL)
+	g := &gitSession{runner: s.runner, rep: rep, env: authEnv(remote, req.Token), url: remote, repo: req.RepoURL, ref: req.Ref}
+	repoDir := filepath.Join(dir, "repo")
+
+	rep.Stage("cloning")
+	rev := "HEAD"
+	var err error
+	if isCommitID(req.Ref) {
+		rev = "FETCH_HEAD"
+		err = g.fetchCommit(ctx, repoDir)
 	} else {
-		rep.Stage(fmt.Sprintf("Downloading directory %s from %s (branch: %s) using sparse checkout...", req.Subdir, req.RepoURL, req.Branch))
+		err = g.clone(ctx, repoDir)
+	}
+	if err != nil {
+		return model.Snapshot{}, g.failure(ctx, err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	git := func(args ...string) error {
-		if _, err := s.runner.Run(ctx, dir, args...); err != nil {
-			return gitFailure(err, req.RepoURL, req.Branch)
-		}
-		return nil
-	}
-
-	setup := [][]string{
-		{"init"},
-		{"remote", "add", "origin", authenticatedURL(req.RepoURL, req.Token)},
-		{"sparse-checkout", "init", "--cone"},
-		{"sparse-checkout", "set", req.Subdir},
-	}
-	for _, args := range setup {
-		if err := git(args...); err != nil {
+	if rules := sparseRules(req.Paths); rules != nil {
+		if err := g.restrict(ctx, repoDir, rules); err != nil {
 			return model.Snapshot{}, err
 		}
 	}
 
-	rep.Stage("Downloading content from repository...")
-	fetch := []string{"fetch", "--depth=1", "--no-tags", "origin"}
-	if req.Branch != "" {
-		fetch = append(fetch, req.Branch)
-	}
-	if err := git(fetch...); err != nil {
-		return model.Snapshot{}, err
-	}
-	if err := git("checkout", "FETCH_HEAD"); err != nil {
-		return model.Snapshot{}, err
+	rep.Stage("fetching " + describePaths(req.Paths))
+	if _, err := g.run(ctx, repoDir, "read-tree", "-mu", rev); err != nil {
+		return model.Snapshot{}, g.failure(ctx, err)
 	}
 
-	return model.Snapshot{Dir: dir, Ref: req.Branch}, nil
-}
-
-func authenticatedURL(repoURL, token string) string {
-	if strings.HasPrefix(repoURL, "github.com/") {
-		repoURL = "https://" + repoURL
+	commit, err := g.run(ctx, repoDir, "rev-parse", rev)
+	if err != nil {
+		return model.Snapshot{}, g.failure(ctx, err)
 	}
 
-	if token == "" {
-		return repoURL
-	}
-
-	if strings.HasPrefix(repoURL, "https://") {
-		parts := strings.SplitN(repoURL[8:], "/", 2)
-		if len(parts) == 2 {
-			return fmt.Sprintf("https://%s@%s/%s", token, parts[0], parts[1])
+	ref := req.Ref
+	if ref == "" {
+		if name, err := g.run(ctx, repoDir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+			ref = strings.TrimSpace(name)
 		}
 	}
 
-	return repoURL
+	return model.Snapshot{Dir: repoDir, Ref: ref, Commit: strings.TrimSpace(commit)}, nil
+}
+
+func (g *gitSession) run(ctx context.Context, dir string, args ...string) (string, error) {
+	start := time.Now()
+	out, err := g.runner.Run(ctx, dir, g.env, args...)
+	g.rep.Debug(fmt.Sprintf("git %s (%s)", strings.Join(args, " "), time.Since(start).Round(time.Millisecond)))
+	return out, err
+}
+
+func (g *gitSession) clone(ctx context.Context, repoDir string) error {
+	args := []string{"clone", "--quiet", "--depth=1", "--filter=blob:none", "--no-checkout", "--no-tags"}
+	if g.ref != "" {
+		args = append(args, "--branch", g.ref)
+	}
+	_, err := g.run(ctx, "", append(args, "--", g.url, repoDir)...)
+	return err
+}
+
+func (g *gitSession) fetchCommit(ctx context.Context, repoDir string) error {
+	if _, err := g.run(ctx, "", "init", "--quiet", "--", repoDir); err != nil {
+		return err
+	}
+	steps := [][]string{
+		{"remote", "add", "--", "origin", g.url},
+		{"config", "core.repositoryformatversion", "1"},
+		{"config", "extensions.partialclone", "origin"},
+		{"config", "remote.origin.promisor", "true"},
+		{"config", "remote.origin.partialclonefilter", "blob:none"},
+		{"fetch", "--quiet", "--depth=1", "--filter=blob:none", "--no-tags", "origin", g.ref},
+	}
+	for _, args := range steps {
+		if _, err := g.run(ctx, repoDir, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g *gitSession) restrict(ctx context.Context, repoDir string, rules []string) error {
+	for _, args := range [][]string{
+		{"config", "core.sparseCheckout", "true"},
+		{"config", "core.sparseCheckoutCone", "false"},
+	} {
+		if _, err := g.run(ctx, repoDir, args...); err != nil {
+			return g.failure(ctx, err)
+		}
+	}
+
+	info := filepath.Join(repoDir, ".git", "info")
+	if err := os.MkdirAll(info, 0o755); err != nil {
+		return fmt.Errorf("failed to prepare the sparse checkout: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(info, "sparse-checkout"), []byte(strings.Join(rules, "\n")+"\n"), 0o644); err != nil {
+		return fmt.Errorf("failed to prepare the sparse checkout: %w", err)
+	}
+	return nil
+}
+
+func (g *gitSession) failure(ctx context.Context, err error) error {
+	failure := gitFailure(err, g.repo, g.ref)
+	var appErr *apperr.Error
+	if g.ref == "" || !errors.Is(failure, apperr.ErrRefNotFound) || !errors.As(failure, &appErr) {
+		return failure
+	}
+	if branch := g.defaultBranch(ctx); branch != "" && branch != g.ref {
+		appErr.Hint = fmt.Sprintf("the default branch is %q", branch)
+	}
+	return failure
+}
+
+func (g *gitSession) defaultBranch(ctx context.Context) string {
+	out, err := g.run(ctx, "", "ls-remote", "--symref", "--", g.url, "HEAD")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "ref:" && fields[2] == "HEAD" {
+			return strings.TrimPrefix(fields[1], "refs/heads/")
+		}
+	}
+	return ""
+}
+
+func isCommitID(ref string) bool {
+	if len(ref) != 40 && len(ref) != 64 {
+		return false
+	}
+	for _, c := range ref {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return false
+		}
+	}
+	return true
+}
+
+func sparseRules(paths []pathspec.Pattern) []string {
+	var rules []string
+	for _, p := range paths {
+		if p.IsAll() {
+			return nil
+		}
+		rules = append(rules, p.Rule())
+	}
+	return rules
+}
+
+func describePaths(paths []pathspec.Pattern) string {
+	switch {
+	case len(paths) == 0, len(paths) == 1 && paths[0].IsAll():
+		return "everything"
+	case len(paths) == 1:
+		return paths[0].String()
+	default:
+		return fmt.Sprintf("%d paths", len(paths))
+	}
+}
+
+func remoteURL(raw string) string {
+	if strings.HasPrefix(raw, "github.com/") {
+		return "https://" + raw
+	}
+	return raw
 }
