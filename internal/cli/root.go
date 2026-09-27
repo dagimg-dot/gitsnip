@@ -8,7 +8,7 @@ import (
 
 	"github.com/dagimg-dot/gitsnip/internal/app"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
-	apperrors "github.com/dagimg-dot/gitsnip/internal/errors"
+	"github.com/dagimg-dot/gitsnip/internal/apperr"
 	"github.com/spf13/cobra"
 )
 
@@ -94,7 +94,7 @@ Arguments:
 			}
 
 			err := app.Download(opts)
-			var appErr *apperrors.AppError
+			var appErr *apperr.Error
 			if errors.As(err, &appErr) {
 				cmd.SilenceUsage = true
 			}

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
-	"github.com/dagimg-dot/gitsnip/internal/errors"
+	"github.com/dagimg-dot/gitsnip/internal/apperr"
 	"github.com/dagimg-dot/gitsnip/internal/util"
 )
 
@@ -48,8 +48,8 @@ type gitHubAPIDownloader struct {
 func (g *gitHubAPIDownloader) Download() error {
 	owner, repo, err := parseGitHubURL(g.opts.RepoURL)
 	if err != nil {
-		return &errors.AppError{
-			Err:     errors.ErrInvalidURL,
+		return &apperr.Error{
+			Err:     apperr.ErrInvalidURL,
 			Message: "Invalid GitHub URL format",
 			Hint:    "URL should be in the format: https://github.com/owner/repo",
 		}
@@ -125,8 +125,8 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubCon
 	}
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return nil, false, &errors.AppError{
-			Err:     errors.ErrNetworkFailure,
+		return nil, false, &apperr.Error{
+			Err:     apperr.ErrNetworkFailure,
 			Message: "Failed to connect to GitHub API",
 			Hint:    "Check your internet connection and try again",
 		}
@@ -136,7 +136,7 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubCon
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := strings.TrimSpace(string(body))
-		return nil, false, errors.ParseGitHubAPIError(resp.StatusCode, bodyStr)
+		return nil, false, apperr.ParseGitHubAPIError(resp.StatusCode, bodyStr)
 	}
 
 	var raw json.RawMessage
@@ -171,8 +171,8 @@ func (g *gitHubAPIDownloader) downloadFile(url, outputPath string) error {
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return &errors.AppError{
-			Err:     errors.ErrNetworkFailure,
+		return &apperr.Error{
+			Err:     apperr.ErrNetworkFailure,
 			Message: "Failed to download file",
 			Hint:    "Check your internet connection and try again",
 		}
@@ -182,7 +182,7 @@ func (g *gitHubAPIDownloader) downloadFile(url, outputPath string) error {
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		bodyStr := strings.TrimSpace(string(body))
-		return errors.ParseGitHubAPIError(resp.StatusCode, bodyStr)
+		return apperr.ParseGitHubAPIError(resp.StatusCode, bodyStr)
 	}
 
 	return util.SaveToFile(outputPath, resp.Body)

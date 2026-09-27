@@ -1,4 +1,4 @@
-package errors
+package apperr
 
 import (
 	"errors"
@@ -17,23 +17,23 @@ var (
 	ErrGitCommandFailed       = errors.New("git command failed")
 )
 
-type AppError struct {
+type Error struct {
 	Err        error
 	Message    string
 	Hint       string
 	StatusCode int
 }
 
-func (e *AppError) Error() string {
+func (e *Error) Error() string {
 	return e.Message
 }
 
-func (e *AppError) Unwrap() error {
+func (e *Error) Unwrap() error {
 	return e.Err
 }
 
 func FormatError(err error) string {
-	var appErr *AppError
+	var appErr *Error
 	if errors.As(err, &appErr) {
 		var builder strings.Builder
 		builder.WriteString(fmt.Sprintf("%s\n", appErr.Message))
@@ -51,7 +51,7 @@ func FormatError(err error) string {
 func ParseGitHubAPIError(statusCode int, body string) error {
 	loweredBody := strings.ToLower(body)
 
-	var appErr AppError
+	var appErr Error
 	appErr.StatusCode = statusCode
 
 	switch statusCode {
@@ -93,7 +93,7 @@ func ParseGitHubAPIError(statusCode int, body string) error {
 func ParseGitError(err error, stderr string) error {
 	loweredStderr := strings.ToLower(stderr)
 
-	var appErr AppError
+	var appErr Error
 	appErr.Err = ErrGitCommandFailed
 
 	switch {

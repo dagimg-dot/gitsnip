@@ -11,7 +11,7 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/app/downloader"
 	"github.com/dagimg-dot/gitsnip/internal/app/gitutil"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
-	apperrors "github.com/dagimg-dot/gitsnip/internal/errors"
+	"github.com/dagimg-dot/gitsnip/internal/apperr"
 )
 
 type cmdCall struct {
@@ -90,7 +90,7 @@ func TestSparseCheckout_gitNotInstalled(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !errors.Is(err, apperrors.ErrGitNotInstalled) {
+	if !errors.Is(err, apperr.ErrGitNotInstalled) {
 		t.Errorf("expected ErrGitNotInstalled, got %v", err)
 	}
 }
@@ -105,7 +105,7 @@ func TestSparseCheckout_pathNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !errors.Is(err, apperrors.ErrPathNotFound) {
+	if !errors.Is(err, apperr.ErrPathNotFound) {
 		t.Errorf("expected ErrPathNotFound, got %v", err)
 	}
 }
