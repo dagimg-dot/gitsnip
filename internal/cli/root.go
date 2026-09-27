@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/dagimg-dot/gitsnip/internal/app"
@@ -88,7 +89,7 @@ Arguments:
 				Ref:    ref,
 				Paths:  patterns,
 				Output: output,
-				Token:  token,
+				Token:  resolveToken(token, src, os.Getenv),
 				Method: methodType,
 				Force:  force,
 			}
@@ -145,7 +146,7 @@ func init() {
 	// TODO: use PersistentFlags if i want flags to be available to subcommands as well
 	rootCmd.Flags().StringVarP(&branch, "branch", "b", "", "Branch, tag or commit to download from (default: the repository's default branch)")
 	rootCmd.Flags().StringVarP(&method, "method", "m", "auto", "Download method: auto, sparse or api")
-	rootCmd.Flags().StringVarP(&token, "token", "t", "", "GitHub API token for private repositories or increased rate limits")
+	rootCmd.Flags().StringVarP(&token, "token", "t", "", "Access token for private repositories (default: $GH_TOKEN or $GITHUB_TOKEN for github.com)")
 	rootCmd.Flags().StringVarP(&provider, "provider", "p", "", "Repository provider ('github', more to come)")
 	rootCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress output during download")
 	rootCmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite files that already exist")
