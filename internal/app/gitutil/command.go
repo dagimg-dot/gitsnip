@@ -6,32 +6,46 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
-	"time"
 )
 
-const DefaultTimeout = 60 * time.Second
+var credentials = regexp.MustCompile(`(://)[^/@\s]+@`)
+
+type Error struct {
+	Args   []string
+	Stderr string
+	Err    error
+}
+
+func (e *Error) Error() string {
+	msg := fmt.Sprintf("git %s: %v", redact(strings.Join(e.Args, " ")), e.Err)
+	if e.Stderr != "" {
+		msg += ": " + redact(e.Stderr)
+	}
+	return msg
+}
+
+func (e *Error) Unwrap() error {
+	return e.Err
+}
+
+func redact(s string) string {
+	return credentials.ReplaceAllString(s, "${1}***@")
+}
 
 func RunGitCommand(ctx context.Context, dir string, args ...string) (string, error) {
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), DefaultTimeout)
-		defer cancel()
-	}
-
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	if err != nil {
-		cmdStr := fmt.Sprintf("git %s", strings.Join(args, " "))
-		return "", fmt.Errorf("%s: %w (%s)", cmdStr, err, stderr.String())
+	if err := cmd.Run(); err != nil {
+		return "", &Error{Args: args, Stderr: strings.TrimSpace(stderr.String()), Err: err}
 	}
-
 	return stdout.String(), nil
 }
 
@@ -52,8 +66,6 @@ func CleanupTempDir(dir string) error {
 	return os.RemoveAll(dir)
 }
 
-// RealRunner is a production git command runner that delegates to the
-// package-level functions. It satisfies the downloader.gitRunner interface.
 type RealRunner struct{}
 
 func (RealRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {

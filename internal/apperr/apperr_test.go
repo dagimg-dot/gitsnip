@@ -65,50 +65,6 @@ func TestParseGitHubAPIError_404_pathNotFound(t *testing.T) {
 	}
 }
 
-func TestParseGitError_repositoryNotFound(t *testing.T) {
-	err := apperr.ParseGitError(errors.New("git error"), "repository not found")
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
-		t.Fatal("expected *apperr.Error")
-	}
-	if !errors.Is(appErr.Err, apperr.ErrRepositoryNotFound) {
-		t.Errorf("expected ErrRepositoryNotFound, got %v", appErr.Err)
-	}
-}
-
-func TestParseGitError_authenticationFailed(t *testing.T) {
-	err := apperr.ParseGitError(errors.New("git error"), "authentication failed")
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
-		t.Fatal("expected *apperr.Error")
-	}
-	if !errors.Is(appErr.Err, apperr.ErrAuthenticationRequired) {
-		t.Errorf("expected ErrAuthenticationRequired, got %v", appErr.Err)
-	}
-}
-
-func TestParseGitError_networkFailure(t *testing.T) {
-	err := apperr.ParseGitError(errors.New("git error"), "failed to connect")
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
-		t.Fatal("expected *apperr.Error")
-	}
-	if !errors.Is(appErr.Err, apperr.ErrNetworkFailure) {
-		t.Errorf("expected ErrNetworkFailure, got %v", appErr.Err)
-	}
-}
-
-func TestParseGitError_pathNotFound(t *testing.T) {
-	err := apperr.ParseGitError(errors.New("git error"), "pathspec 'foo' did not match any file")
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
-		t.Fatal("expected *apperr.Error")
-	}
-	if !errors.Is(appErr.Err, apperr.ErrPathNotFound) {
-		t.Errorf("expected ErrPathNotFound, got %v", appErr.Err)
-	}
-}
-
 func TestFormatError_appError(t *testing.T) {
 	appErr := &apperr.Error{
 		Err:     apperr.ErrInvalidURL,

@@ -121,11 +121,11 @@ func (s *sparseCheckoutDownloader) getAuthenticatedRepoURL() string {
 
 func (s *sparseCheckoutDownloader) initRepo(ctx context.Context, dir, repoURL string) error {
 	if _, err := s.runner.Run(ctx, dir, "init"); err != nil {
-		return apperr.ParseGitError(err, "git init failed")
+		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
 	}
 
 	if _, err := s.runner.Run(ctx, dir, "remote", "add", "origin", repoURL); err != nil {
-		return apperr.ParseGitError(err, "failed to add remote")
+		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
 	}
 
 	return nil
@@ -133,11 +133,11 @@ func (s *sparseCheckoutDownloader) initRepo(ctx context.Context, dir, repoURL st
 
 func (s *sparseCheckoutDownloader) setupSparseCheckout(ctx context.Context, dir string) error {
 	if _, err := s.runner.Run(ctx, dir, "sparse-checkout", "init", "--cone"); err != nil {
-		return apperr.ParseGitError(err, "failed to enable sparse checkout")
+		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
 	}
 
 	if _, err := s.runner.Run(ctx, dir, "sparse-checkout", "set", s.opts.Subdir); err != nil {
-		return apperr.ParseGitError(err, "failed to set sparse checkout pattern")
+		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
 	}
 
 	return nil
@@ -153,11 +153,11 @@ func (s *sparseCheckoutDownloader) pullContent(ctx context.Context, dir string) 
 		fetchArgs = append(fetchArgs, s.opts.Branch)
 	}
 	if _, err := s.runner.Run(ctx, dir, fetchArgs...); err != nil {
-		return apperr.ParseGitError(err, "failed to fetch content")
+		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
 	}
 
 	if _, err := s.runner.Run(ctx, dir, "checkout", "FETCH_HEAD"); err != nil {
-		return apperr.ParseGitError(err, "failed to checkout content")
+		return gitFailure(err, s.opts.RepoURL, s.opts.Branch)
 	}
 
 	return nil

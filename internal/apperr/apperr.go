@@ -10,6 +10,7 @@ var (
 	ErrRateLimitExceeded      = errors.New("GitHub API rate limit exceeded")
 	ErrAuthenticationRequired = errors.New("authentication required for this repository")
 	ErrRepositoryNotFound     = errors.New("repository not found")
+	ErrRefNotFound            = errors.New("ref not found")
 	ErrPathNotFound           = errors.New("path not found in repository")
 	ErrNetworkFailure         = errors.New("network connection error")
 	ErrInvalidURL             = errors.New("invalid repository URL")
@@ -22,14 +23,26 @@ type Error struct {
 	Message    string
 	Hint       string
 	StatusCode int
+	Cause      error
+}
+
+func Wrap(kind, cause error, message, hint string) *Error {
+	return &Error{Err: kind, Message: message, Hint: hint, Cause: cause}
 }
 
 func (e *Error) Error() string {
 	return e.Message
 }
 
-func (e *Error) Unwrap() error {
-	return e.Err
+func (e *Error) Unwrap() []error {
+	var errs []error
+	if e.Err != nil {
+		errs = append(errs, e.Err)
+	}
+	if e.Cause != nil {
+		errs = append(errs, e.Cause)
+	}
+	return errs
 }
 
 func FormatError(err error) string {
@@ -85,48 +98,6 @@ func ParseGitHubAPIError(statusCode int, body string) error {
 	default:
 		appErr.Err = errors.New(body)
 		appErr.Message = fmt.Sprintf("GitHub API error (%d): %s", statusCode, body)
-	}
-
-	return &appErr
-}
-
-func ParseGitError(err error, stderr string) error {
-	loweredStderr := strings.ToLower(stderr)
-
-	var appErr Error
-	appErr.Err = ErrGitCommandFailed
-
-	switch {
-	case strings.Contains(loweredStderr, "repository not found"):
-		appErr.Err = ErrRepositoryNotFound
-		appErr.Message = "Repository not found"
-		appErr.Hint = "Check that the repository URL is correct"
-
-	case strings.Contains(loweredStderr, "could not find remote branch") ||
-		strings.Contains(loweredStderr, "pathspec") && strings.Contains(loweredStderr, "did not match"):
-		appErr.Err = ErrPathNotFound
-		appErr.Message = "Branch or reference not found"
-		appErr.Hint = "Check that the branch name or reference exists in the repository"
-
-	case strings.Contains(loweredStderr, "authentication failed") ||
-		strings.Contains(loweredStderr, "authorization failed") ||
-		strings.Contains(loweredStderr, "could not read from remote repository"):
-		appErr.Err = ErrAuthenticationRequired
-		appErr.Message = "Authentication required to access this repository"
-		appErr.Hint = "Use --token flag to provide a GitHub token with appropriate permissions"
-
-	case strings.Contains(loweredStderr, "failed to connect") ||
-		strings.Contains(loweredStderr, "could not resolve host"):
-		appErr.Err = ErrNetworkFailure
-		appErr.Message = "Failed to connect to remote repository"
-		appErr.Hint = "Check your internet connection and try again"
-
-	default:
-		appErr.Err = err
-		appErr.Message = fmt.Sprintf("Git operation failed: %v", err)
-		if stderr != "" {
-			appErr.Hint = fmt.Sprintf("Git error output: %s", stderr)
-		}
 	}
 
 	return &appErr
