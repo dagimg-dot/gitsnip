@@ -7,23 +7,24 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
 )
 
-func TestFormatError_appError(t *testing.T) {
-	appErr := &apperr.Error{
-		Err:     apperr.ErrInvalidURL,
-		Message: "Bad URL",
-		Hint:    "Use a valid URL",
+func TestWrapKeepsTheKindAndTheCause(t *testing.T) {
+	cause := errors.New("exit status 128")
+	err := apperr.Wrap(apperr.ErrRefNotFound, cause, `Branch or tag "main" doesn't exist in o/r`, `the default branch is "master"`)
+
+	if err.Error() != `Branch or tag "main" doesn't exist in o/r` {
+		t.Errorf("message = %q", err.Error())
 	}
-	got := apperr.FormatError(appErr)
-	want := "Bad URL\nHint: Use a valid URL\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+	if !errors.Is(err, apperr.ErrRefNotFound) || !errors.Is(err, cause) {
+		t.Error("errors.Is should see both the kind and the cause")
+	}
+	if errors.Is(err, apperr.ErrPathNotFound) {
+		t.Error("matched an unrelated kind")
 	}
 }
 
-func TestFormatError_plainError(t *testing.T) {
-	got := apperr.FormatError(errors.New("plain error"))
-	want := "plain error\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+func TestWrapWithoutACause(t *testing.T) {
+	err := apperr.Wrap(apperr.ErrUnsupported, nil, "nope", "")
+	if !errors.Is(err, apperr.ErrUnsupported) {
+		t.Error("lost the kind")
 	}
 }

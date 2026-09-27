@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/dagimg-dot/gitsnip/internal/app/downloader"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
@@ -57,11 +58,17 @@ func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep m
 		return model.Result{}, err
 	}
 
+	target := output
+	if sel.single {
+		target = filepath.Join(output, filepath.FromSlash(relativeTo(sel.base, sel.files[0])))
+	}
+
 	return model.Result{
 		Ref:    snap.Ref,
 		Commit: snap.Commit,
 		Paths:  paths,
 		Output: output,
+		Target: target,
 		Files:  written,
 		Bytes:  size,
 	}, nil

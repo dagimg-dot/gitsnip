@@ -133,7 +133,7 @@ func writeFiles(ctx context.Context, root string, sel selection, output string, 
 	existed := statErr == nil
 	if existed && !info.IsDir() {
 		return 0, 0, apperr.Wrap(apperr.ErrDestinationExists, nil,
-			fmt.Sprintf("%s exists and isn't a folder", displayPath(output)), "pick another folder with -o")
+			fmt.Sprintf("%s exists and isn't a folder", DisplayPath(output)), "pick another folder with -o")
 	}
 	if existed && !force {
 		if err := checkConflicts(sel, output); err != nil {
@@ -203,14 +203,14 @@ func checkConflicts(sel selection, output string) error {
 		return nil
 	case sel.single:
 		return apperr.Wrap(apperr.ErrDestinationExists, nil,
-			fmt.Sprintf("%s already exists", displayPath(clashes[0])), "pass --force to overwrite it, or -o to write somewhere else")
+			fmt.Sprintf("%s already exists", DisplayPath(clashes[0])), "pass --force to overwrite it, or -o to write somewhere else")
 	default:
 		return apperr.Wrap(apperr.ErrDestinationExists, nil,
-			fmt.Sprintf("%s already has %d of these files", displayPath(output), len(clashes)), "pass --force to overwrite, or -o to write somewhere else")
+			fmt.Sprintf("%s already has %d of these files", DisplayPath(output), len(clashes)), "pass --force to overwrite, or -o to write somewhere else")
 	}
 }
 
-func displayPath(p string) string {
+func DisplayPath(p string) string {
 	sep := string(filepath.Separator)
 	if filepath.IsAbs(p) || p == "." || p == ".." || strings.HasPrefix(p, "."+sep) || strings.HasPrefix(p, ".."+sep) {
 		return p

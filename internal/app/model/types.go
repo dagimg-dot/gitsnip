@@ -51,6 +51,7 @@ type Result struct {
 	Commit string
 	Paths  []pathspec.Pattern
 	Output string
+	Target string
 	Files  int
 	Bytes  int64
 }

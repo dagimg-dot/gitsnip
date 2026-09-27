@@ -1,153 +1,182 @@
 package cli
 
 import (
-	"errors"
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dagimg-dot/gitsnip/internal/app"
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
-	"github.com/dagimg-dot/gitsnip/internal/apperr"
 	"github.com/dagimg-dot/gitsnip/internal/pathspec"
 	"github.com/dagimg-dot/gitsnip/internal/source"
+	"github.com/dagimg-dot/gitsnip/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-var (
+type options struct {
+	output   string
 	branch   string
 	method   string
 	token    string
 	provider string
-	quiet    bool
 	force    bool
-
-	rootCmd = &cobra.Command{
-		Use:   "gitsnip <repository_url> <folder_path> [output_dir]",
-		Short: "Download a specific folder from a Git repository (GitHub)",
-		Long: `Gitsnip allows you to download a specific folder from a remote Git
-repository without cloning the entire repository.
-
-Arguments:
-  repository_url: URL of the GitHub repository (e.g., https://github.com/user/repo)
-  folder_path:    Path to the folder within the repository you want to download.
-  output_dir:     Optional. Directory where the folder should be saved.
-                  Defaults to the folder's base name in the current directory.`,
-
-		PreRunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				cmd.Help()
-				return nil
-			}
-			return nil
-		},
-		Args: cobra.RangeArgs(0, 3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return nil
-			}
-
-			src, err := source.Parse(args[0])
-			if err != nil {
-				return apperr.Wrap(apperr.ErrInvalidURL, err, err.Error(), "use owner/repo, a GitHub or GitLab link, or a git URL")
-			}
-
-			var raws []string
-			if src.Path != "" {
-				raws = append(raws, src.Path)
-			}
-			if len(args) >= 2 {
-				raws = append(raws, args[1])
-			}
-			patterns, err := pathspec.ParseAll(raws)
-			if err != nil {
-				return err
-			}
-
-			output := ""
-			outputDir := "(automatic)"
-			if len(args) == 3 {
-				output = args[2]
-				outputDir = output
-			}
-
-			ref := branch
-			switch {
-			case ref == "":
-				ref = src.Ref
-			case src.RefPath != "" || (src.Ref != "" && src.Ref != ref):
-				return fmt.Errorf("the source already names a branch; drop -b")
-			}
-
-			methodType, err := model.ParseMethod(method)
-			if err != nil {
-				return err
-			}
-
-			req := model.Request{
-				Source: src,
-				Ref:    ref,
-				Paths:  patterns,
-				Output: output,
-				Token:  resolveToken(token, src, os.Getenv),
-				Method: methodType,
-				Force:  force,
-			}
-
-			if !quiet {
-				fmt.Printf("Repository URL: %s\n", src.URL)
-				fmt.Printf("Folder Path:    %s\n", strings.Join(raws, ", "))
-				shownBranch := branch
-				if shownBranch == "" {
-					shownBranch = "(default)"
-				}
-				fmt.Printf("Target Branch:  %s\n", shownBranch)
-				fmt.Printf("Download Method: %s\n", method)
-				fmt.Printf("Output Dir:     %s\n", outputDir)
-				fmt.Println("--------------------------------")
-			}
-
-			var rep model.Reporter = model.Discard{}
-			if !quiet {
-				rep = linePrinter{}
-			}
-
-			_, err = app.Download(cmd.Context(), req, rep)
-			var appErr *apperr.Error
-			if errors.As(err, &appErr) {
-				cmd.SilenceUsage = true
-			}
-			if err == nil && !quiet {
-				fmt.Println("Download completed successfully.")
-			}
-
-			return err
-		},
-	}
-)
-
-type linePrinter struct{}
-
-func (linePrinter) Stage(text string) { fmt.Println(text) }
-func (linePrinter) Progress(int, int) {}
-func (linePrinter) Warn(text string)  { fmt.Println("Warning: " + text) }
-func (linePrinter) Debug(text string) {}
-
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main().
-func Execute() error {
-	rootCmd.SilenceErrors = true
-	rootCmd.SilenceUsage = false
-	return rootCmd.Execute()
+	quiet    bool
+	verbose  bool
+	json     bool
 }
 
-// init is called by Go before main()
-func init() {
-	// TODO: use PersistentFlags if i want flags to be available to subcommands as well
-	rootCmd.Flags().StringVarP(&branch, "branch", "b", "", "Branch, tag or commit to download from (default: the repository's default branch)")
-	rootCmd.Flags().StringVarP(&method, "method", "m", "auto", "Download method: auto, sparse or api")
-	rootCmd.Flags().StringVarP(&token, "token", "t", "", "Access token for private repositories (default: $GH_TOKEN or $GITHUB_TOKEN for github.com)")
-	rootCmd.Flags().StringVarP(&provider, "provider", "p", "", "Repository provider ('github', more to come)")
-	rootCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress output during download")
-	rootCmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite files that already exist")
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	var o options
+	cmd := newRootCmd(&o, stdout, stderr)
+	cmd.SetArgs(args)
+	err := cmd.ExecuteContext(ctx)
+	if err == nil {
+		return 0
+	}
+
+	message, hint, detail := describe(err, o.branch != "")
+	ui.New(stderr, ui.Options{Verbose: o.verbose}).Fail(message, hint, detail)
+	return exitCode(err)
+}
+
+func newRootCmd(o *options, stdout, stderr io.Writer) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:           "gitsnip <source> [path...]",
+		Short:         "Download folders and files from any git repository",
+		Args:          cobra.ArbitraryArgs,
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		Version:       currentVersion(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			return snip(cmd.Context(), *o, args, stdout, stderr)
+		},
+	}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetVersionTemplate("gitsnip {{.Version}}\n")
+	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) { writeHelp(c, stdout) })
+	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usage(capitalize(err.Error()), "run gitsnip --help for usage")
+	})
+	cmd.CompletionOptions.HiddenDefaultCmd = true
+
+	f := cmd.Flags()
+	f.StringVarP(&o.output, "output", "o", "", "where to write (default: the folder's name)")
+	f.StringVarP(&o.branch, "branch", "b", "", "branch, tag or commit (default: the repo's default)")
+	f.StringVarP(&o.method, "method", "m", "auto", "auto, sparse or api (default auto)")
+	f.StringVarP(&o.token, "token", "t", "", "access token (default: $GH_TOKEN or $GITHUB_TOKEN)")
+	f.BoolVarP(&o.force, "force", "f", false, "overwrite existing files")
+	f.BoolVarP(&o.quiet, "quiet", "q", false, "print nothing on success")
+	f.BoolVarP(&o.verbose, "verbose", "v", false, "show git commands and API calls")
+	f.BoolVar(&o.json, "json", false, "print the result as JSON")
+	f.BoolP("help", "h", false, "show this help")
+	f.Bool("version", false, "print the version")
+	f.StringVarP(&o.provider, "provider", "p", "", "")
+	f.MarkHidden("provider")
+	for name, value := range map[string]string{"output": "dir", "branch": "ref", "method": "name", "token": "token"} {
+		f.SetAnnotation(name, valueAnnotation, []string{value})
+	}
+
+	cmd.AddCommand(newVersionCmd(stdout))
+	return cmd
+}
+
+func snip(ctx context.Context, o options, args []string, stdout, stderr io.Writer) error {
+	started := time.Now()
+	u := ui.New(stderr, ui.Options{Quiet: o.quiet, Verbose: o.verbose, JSON: o.json})
+	defer u.Stop()
+
+	req, err := buildRequest(o, args, u)
+	if err != nil {
+		return err
+	}
+
+	u.Start(req.Source.Display())
+	res, err := app.Download(ctx, req, u)
+	if err != nil {
+		return err
+	}
+
+	elapsed := time.Since(started)
+	if o.json {
+		return writeJSON(stdout, req.Source, res, u.Warnings(), elapsed)
+	}
+	u.Success(summarize(req.Source, res, elapsed))
+	return nil
+}
+
+func buildRequest(o options, args []string, u *ui.UI) (model.Request, error) {
+	if o.provider != "" {
+		u.Warn("--provider isn't needed anymore; the host comes from the source")
+	}
+
+	src, err := source.Parse(args[0])
+	if err != nil {
+		return model.Request{}, usage(capitalize(err.Error()), "use owner/repo, a link to a repository, folder or file, or a git URL")
+	}
+
+	raws := args[1:]
+	output := o.output
+	if output == "" && len(raws) >= 2 && looksLocal(raws[len(raws)-1]) {
+		output, raws = raws[len(raws)-1], raws[:len(raws)-1]
+		u.Warn("positional output folders are deprecated; use -o " + output)
+	}
+	if src.Path != "" {
+		raws = append([]string{src.Path}, raws...)
+	}
+	paths, err := pathspec.ParseAll(raws)
+	if err != nil {
+		return model.Request{}, usage(capitalize(err.Error()), "")
+	}
+
+	ref, err := pickRef(src, o.branch)
+	if err != nil {
+		return model.Request{}, err
+	}
+
+	method, err := model.ParseMethod(o.method)
+	if err != nil {
+		return model.Request{}, usage(capitalize(err.Error()), "")
+	}
+
+	return model.Request{
+		Source: src,
+		Ref:    ref,
+		Paths:  paths,
+		Output: output,
+		Token:  resolveToken(o.token, src, os.Getenv),
+		Method: method,
+		Force:  o.force,
+	}, nil
+}
+
+func pickRef(src source.Source, branch string) (string, error) {
+	switch {
+	case branch == "":
+		return src.Ref, nil
+	case src.RefPath != "":
+		return "", usage("The link already names a branch", "drop -b, or link to the branch you want")
+	case src.Ref != "" && src.Ref != branch:
+		return "", usage(fmt.Sprintf("The source asks for %q but -b asks for %q", src.Ref, branch), "keep one of them")
+	}
+	return branch, nil
+}
+
+func looksLocal(arg string) bool {
+	if arg == "." || arg == ".." || filepath.IsAbs(arg) || filepath.VolumeName(arg) != "" || strings.HasPrefix(arg, "~") {
+		return true
+	}
+	for _, prefix := range []string{"./", "../", `.\`, `..\`} {
+		if strings.HasPrefix(arg, prefix) {
+			return true
+		}
+	}
+	return false
 }

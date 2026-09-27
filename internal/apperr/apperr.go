@@ -1,10 +1,6 @@
 package apperr
 
-import (
-	"errors"
-	"fmt"
-	"strings"
-)
+import "errors"
 
 var (
 	ErrRateLimitExceeded      = errors.New("GitHub API rate limit exceeded")
@@ -44,20 +40,4 @@ func (e *Error) Unwrap() []error {
 		errs = append(errs, e.Cause)
 	}
 	return errs
-}
-
-func FormatError(err error) string {
-	var appErr *Error
-	if errors.As(err, &appErr) {
-		var builder strings.Builder
-		builder.WriteString(fmt.Sprintf("%s\n", appErr.Message))
-
-		if appErr.Hint != "" {
-			builder.WriteString(fmt.Sprintf("Hint: %s\n", appErr.Hint))
-		}
-
-		return builder.String()
-	}
-
-	return fmt.Sprintf("%v\n", err)
 }

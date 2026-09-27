@@ -115,7 +115,7 @@ func TestRunWritesAFolderIntoItsOwnName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Output != "lib" || res.Files != 2 || res.Bytes != 2 || res.Ref != "main" || res.Commit != "abc123" {
+	if res.Output != "lib" || res.Target != "lib" || res.Files != 2 || res.Bytes != 2 || res.Ref != "main" || res.Commit != "abc123" {
 		t.Errorf("result = %+v", res)
 	}
 	assertFile(t, "lib/a.txt", "a")
@@ -130,7 +130,7 @@ func TestRunWritesASingleFileIntoTheCurrentDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Output != "." || res.Files != 1 {
+	if res.Output != "." || res.Target != "a.txt" || res.Files != 1 {
 		t.Errorf("result = %+v", res)
 	}
 	assertFile(t, "a.txt", "a")

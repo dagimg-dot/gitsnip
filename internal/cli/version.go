@@ -1,8 +1,11 @@
 package cli
 
 import (
-	"fmt"
+	"io"
+	"runtime/debug"
+	"strings"
 
+	"github.com/dagimg-dot/gitsnip/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -11,20 +14,42 @@ var (
 	commit    = "none"
 	buildDate = "unknown"
 	builtBy   = "unknown"
-
-	versionCmd = &cobra.Command{
-		Use:   "version",
-		Short: "Print the version information",
-		Long:  `Display version, build, and other information about GitSnip.`,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("GitSnip %s\n", version)
-			fmt.Printf("  Commit: %s\n", commit)
-			fmt.Printf("  Built on: %s\n", buildDate)
-			fmt.Printf("  Built by: %s\n", builtBy)
-		},
-	}
 )
 
-func init() {
-	rootCmd.AddCommand(versionCmd)
+func currentVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
+}
+
+func newVersionCmd(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:    "version",
+		Short:  "Print the version",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		Run: func(*cobra.Command, []string) {
+			ui.Print(stdout, nil, func(p ui.Paint) string {
+				var details []string
+				if commit != "none" {
+					details = append(details, "commit "+commit)
+				}
+				if buildDate != "unknown" {
+					details = append(details, "built "+buildDate)
+				}
+				if builtBy != "unknown" {
+					details = append(details, "by "+builtBy)
+				}
+				out := p(ui.Bold, "gitsnip") + " " + currentVersion() + "\n"
+				if len(details) > 0 {
+					out += p(ui.Dim, strings.Join(details, " · ")) + "\n"
+				}
+				return out
+			})
+		},
+	}
 }

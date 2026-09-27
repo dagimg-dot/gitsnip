@@ -1,16 +1,17 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/dagimg-dot/gitsnip/internal/apperr"
 	"github.com/dagimg-dot/gitsnip/internal/cli"
 )
 
 func main() {
-	if err := cli.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s", apperr.FormatError(err))
-		os.Exit(1)
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := cli.Run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }
