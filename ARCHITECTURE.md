@@ -86,7 +86,7 @@ Downloaders never print and never touch the output folder. They fill a staging d
 - Unknown hosts without markers treat the whole path as the repository, which suits nested GitLab groups.
 - `git@host:path` and `ssh://` remotes, plus `file://` URLs, are passed to git unchanged.
 
-A link like `tree/feature/login/src` can't tell where the ref ends and the path begins, so the parser keeps it as `RefPath`. Each engine resolves it against the remote: the git engine uses one `ls-remote` call over all candidate prefixes, and the API engine tries candidates shortest first.
+A link like `tree/feature/login/src` can't tell where the ref ends and the path begins, so the parser keeps it as `RefPath`. Each engine resolves it against the remote. The git engine asks `ls-remote --heads --tags` about all candidate prefixes and, while it waits, already clones the first segment, which is the ref in most links. It clones again only when the longest matching ref turns out to be a different one. The API engine tries candidates shortest first.
 
 ---
 
@@ -94,8 +94,8 @@ A link like `tree/feature/login/src` can't tell where the ref ends and the path 
 
 ### Sparse (git)
 
-1. `git clone --depth=1 --filter=blob:none --no-checkout [--branch ref] -- <url>` fetches commits and trees but no file contents. A full commit SHA instead goes through `init` plus a partial `fetch` of that commit.
-2. Non-cone sparse rules (`/path`, `/data/*.json`) are written to `.git/info/sparse-checkout`.
+1. `git clone --depth=1 --filter=blob:none --no-checkout [--branch ref] -- <url>` fetches commits and trees but no file contents. A full commit SHA instead goes through `init` plus a partial `fetch` of that commit. Without paths, the filter is dropped, so one plain shallow clone brings everything instead of a second request that names every file.
+2. Non-cone sparse rules (`/path`, `/data/*.json`) are written to `.git/info/sparse-checkout`, along with the `.gitattributes` of every parent folder. Git reads those during checkout, and outside the sparse rules it would fetch each one in a separate round trip.
 3. `git read-tree -mu HEAD` checks out the matching files, and git fetches only their blobs, in one batch.
 4. `rev-parse` and `symbolic-ref` record the commit and the default branch name. `ls-tree` serves path suggestions from the local trees.
 
