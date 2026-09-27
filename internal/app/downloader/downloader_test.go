@@ -283,26 +283,36 @@ func TestSparseCheckoutNeedsGit(t *testing.T) {
 	}
 }
 
-func TestFactory_sparse(t *testing.T) {
-	dl, err := downloader.GetDownloader(model.Request{Method: model.MethodSparse})
-	if err != nil || dl == nil {
-		t.Fatalf("got %v, %v", dl, err)
+func TestFactoryPicksTheRequestedMethod(t *testing.T) {
+	for _, m := range []model.Method{model.MethodSparse, model.MethodAPI} {
+		dl, method, err := downloader.GetDownloader(model.Request{Method: m, Source: parseSource(t, "o/r")})
+		if err != nil || dl == nil || method != m {
+			t.Errorf("%s: got %v, %s, %v", m, dl, method, err)
+		}
 	}
-}
-
-func TestFactory_api(t *testing.T) {
-	dl, err := downloader.GetDownloader(model.Request{Method: model.MethodAPI, Source: parseSource(t, "o/r")})
-	if err != nil || dl == nil {
-		t.Fatalf("got %v, %v", dl, err)
-	}
-	if _, err := downloader.GetDownloader(model.Request{Method: model.MethodAPI, Source: parseSource(t, "gitlab.com/g/p")}); !errors.Is(err, apperr.ErrUnsupported) {
+	if _, _, err := downloader.GetDownloader(model.Request{Method: model.MethodAPI, Source: parseSource(t, "gitlab.com/g/p")}); !errors.Is(err, apperr.ErrUnsupported) {
 		t.Errorf("api method for gitlab: got %v, want ErrUnsupported", err)
 	}
+	if _, _, err := downloader.GetDownloader(model.Request{Method: "invalid"}); err == nil {
+		t.Error("expected an error for an unknown method")
+	}
 }
 
-func TestFactory_invalid(t *testing.T) {
-	if _, err := downloader.GetDownloader(model.Request{Method: "invalid"}); err == nil {
-		t.Fatal("expected error for invalid method")
+func TestFactoryAutoPrefersGitAndFallsBackToTheAPI(t *testing.T) {
+	if gitutil.IsGitInstalled() {
+		_, method, err := downloader.GetDownloader(model.Request{Method: model.MethodAuto, Source: parseSource(t, "gitlab.com/g/p")})
+		if err != nil || method != model.MethodSparse {
+			t.Errorf("with git: got %s, %v", method, err)
+		}
+	}
+
+	t.Setenv("PATH", "")
+	_, method, err := downloader.GetDownloader(model.Request{Source: parseSource(t, "o/r")})
+	if err != nil || method != model.MethodAPI {
+		t.Errorf("without git on github: got %s, %v", method, err)
+	}
+	if _, _, err := downloader.GetDownloader(model.Request{Source: parseSource(t, "gitlab.com/g/p")}); !errors.Is(err, apperr.ErrGitNotInstalled) {
+		t.Errorf("without git elsewhere: got %v, want ErrGitNotInstalled", err)
 	}
 }
 

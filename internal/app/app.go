@@ -10,11 +10,13 @@ import (
 )
 
 func Download(ctx context.Context, req model.Request, rep model.Reporter) (model.Result, error) {
-	dl, err := downloader.GetDownloader(req)
+	dl, method, err := downloader.GetDownloader(req)
 	if err != nil {
 		return model.Result{}, err
 	}
-	return run(ctx, dl, req, rep)
+	res, err := run(ctx, dl, req, rep)
+	res.Method = method
+	return res, err
 }
 
 func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep model.Reporter) (model.Result, error) {

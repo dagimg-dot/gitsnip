@@ -78,9 +78,9 @@ Arguments:
 				return fmt.Errorf("the source already names a branch; drop -b")
 			}
 
-			methodType := model.MethodSparse
-			if method == "api" {
-				methodType = model.MethodAPI
+			methodType, err := model.ParseMethod(method)
+			if err != nil {
+				return err
 			}
 
 			req := model.Request{
@@ -144,7 +144,7 @@ func Execute() error {
 func init() {
 	// TODO: use PersistentFlags if i want flags to be available to subcommands as well
 	rootCmd.Flags().StringVarP(&branch, "branch", "b", "", "Branch, tag or commit to download from (default: the repository's default branch)")
-	rootCmd.Flags().StringVarP(&method, "method", "m", "sparse", "Download method ('api' or 'sparse')")
+	rootCmd.Flags().StringVarP(&method, "method", "m", "auto", "Download method: auto, sparse or api")
 	rootCmd.Flags().StringVarP(&token, "token", "t", "", "GitHub API token for private repositories or increased rate limits")
 	rootCmd.Flags().StringVarP(&provider, "provider", "p", "", "Repository provider ('github', more to come)")
 	rootCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress output during download")
