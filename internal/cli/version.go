@@ -33,7 +33,7 @@ func newVersionCmd(stdout io.Writer) *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		Run: func(*cobra.Command, []string) {
-			ui.Print(stdout, nil, func(p ui.Paint) string {
+			ui.Print(stdout, func(p ui.Paint) string {
 				var details []string
 				if commit != "none" {
 					details = append(details, "commit "+commit)

@@ -1,9 +1,6 @@
 package ui
 
-import (
-	"io"
-	"os"
-)
+import "io"
 
 type Style string
 
@@ -32,11 +29,8 @@ func colored(style Style, text string) string {
 	return string(style) + text + reset
 }
 
-func Print(w io.Writer, getenv func(string) string, build func(Paint) string) {
-	if getenv == nil {
-		getenv = os.Getenv
-	}
-	if color, _, _ := detect(w, getenv); color && attempt(func() error {
+func Print(w io.Writer, build func(Paint) string) {
+	if color, _, _ := detect(w); color && attempt(func() error {
 		_, err := io.WriteString(w, build(colored))
 		return err
 	}) {

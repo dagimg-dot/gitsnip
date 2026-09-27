@@ -2,6 +2,7 @@ package ui
 
 import (
 	"io"
+	"os"
 
 	"golang.org/x/term"
 )
@@ -13,9 +14,9 @@ type fdWriter interface {
 	Fd() uintptr
 }
 
-func detect(w io.Writer, getenv func(string) string) (color, live bool, width int) {
+func detect(w io.Writer) (color, live bool, width int) {
 	f, ok := w.(fdWriter)
-	if !ok || getenv("TERM") == "dumb" || !term.IsTerminal(int(f.Fd())) {
+	if !ok || os.Getenv("TERM") == "dumb" || !term.IsTerminal(int(f.Fd())) {
 		return false, false, 0
 	}
 	if err := enableVirtualTerminal(f.Fd()); err != nil {
@@ -25,5 +26,5 @@ func detect(w io.Writer, getenv func(string) string) (color, live bool, width in
 	if err != nil || width <= 0 {
 		width = 80
 	}
-	return getenv("NO_COLOR") == "", true, width
+	return os.Getenv("NO_COLOR") == "", true, width
 }

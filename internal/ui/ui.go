@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +15,6 @@ type Options struct {
 	Quiet   bool
 	Verbose bool
 	JSON    bool
-	Getenv  func(string) string
 }
 
 type Summary struct {
@@ -47,11 +45,8 @@ type UI struct {
 }
 
 func New(stderr io.Writer, opts Options) *UI {
-	if opts.Getenv == nil {
-		opts.Getenv = os.Getenv
-	}
 	u := &UI{w: stderr, opts: opts}
-	u.color, u.live, u.width = detect(stderr, opts.Getenv)
+	u.color, u.live, u.width = detect(stderr)
 	if opts.Quiet || opts.JSON {
 		u.live = false
 	}

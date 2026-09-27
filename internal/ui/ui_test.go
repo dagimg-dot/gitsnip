@@ -201,7 +201,7 @@ func TestFormatting(t *testing.T) {
 
 func TestPrintFallsBackForNonTerminals(t *testing.T) {
 	var buf bytes.Buffer
-	Print(&buf, nil, func(p Paint) string { return p(Bold, "Usage") + "\n" })
+	Print(&buf, func(p Paint) string { return p(Bold, "Usage") + "\n" })
 	if buf.String() != "Usage\n" {
 		t.Errorf("got %q", buf.String())
 	}

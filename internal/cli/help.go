@@ -27,7 +27,7 @@ func writeHelp(cmd *cobra.Command, w io.Writer) {
 		width = max(width, utf8.RuneCountInString(row[0]))
 	}
 
-	ui.Print(w, nil, func(p ui.Paint) string {
+	ui.Print(w, func(p ui.Paint) string {
 		var b strings.Builder
 		b.WriteString("Download folders and files from any git repository.\n\n")
 		b.WriteString(p(ui.Bold, "Usage") + "\n")
