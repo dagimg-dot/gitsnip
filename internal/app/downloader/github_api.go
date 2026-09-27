@@ -1,14 +1,12 @@
 package downloader
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"strings"
 
@@ -56,17 +54,15 @@ func (g *gitHubAPIDownloader) Download() error {
 			g.opts.Subdir, owner, repo, g.opts.Branch)
 	}
 
-	//check if the item is a file or directory
-	content, isFile, err := g.getContents(owner, repo, g.opts.Subdir)
+	items, isFile, err := g.getContents(owner, repo, g.opts.Subdir)
 	if err != nil {
 		return err
 	}
 
-	if isFile == true {
-		return g.downloadFile(content.(GitHubContentItem).DownloadURL, g.opts.OutputDir)
-	} else {
-		return g.downloadDirectory(content.([]GitHubContentItem), g.opts.OutputDir)
+	if isFile {
+		return g.downloadFile(items[0].DownloadURL, g.opts.OutputDir)
 	}
+	return g.downloadDirectory(owner, repo, items, g.opts.OutputDir)
 }
 
 func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
@@ -85,8 +81,8 @@ func parseGitHubURL(repoURL string) (owner string, repo string, err error) {
 	return "", "", fmt.Errorf("URL does not match GitHub repository pattern: %s", repoURL)
 }
 
-func (g *gitHubAPIDownloader) downloadDirectory(items []GitHubContentItem, outputDir string) error {
-	if err := util.EnsureDir(g.opts.OutputDir); err != nil {
+func (g *gitHubAPIDownloader) downloadDirectory(owner, repo string, items []GitHubContentItem, outputDir string) error {
+	if err := util.EnsureDir(outputDir); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -94,12 +90,12 @@ func (g *gitHubAPIDownloader) downloadDirectory(items []GitHubContentItem, outpu
 		targetPath := filepath.Join(outputDir, item.Name)
 
 		if item.Type == "dir" {
-			//download sub directories
-			if err := util.EnsureDir(targetPath); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", targetPath, err)
+			children, _, err := g.getContents(owner, repo, item.Path)
+			if err != nil {
+				return err
 			}
 
-			if err := g.downloadDirectory(items, targetPath); err != nil {
+			if err := g.downloadDirectory(owner, repo, children, targetPath); err != nil {
 				return err
 			}
 		} else if item.Type == "file" {
@@ -115,7 +111,7 @@ func (g *gitHubAPIDownloader) downloadDirectory(items []GitHubContentItem, outpu
 	return nil
 }
 
-func (g *gitHubAPIDownloader) getContents(owner, repo, path string) (any, bool, error) {
+func (g *gitHubAPIDownloader) getContents(owner, repo, path string) ([]GitHubContentItem, bool, error) {
 	apiURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s",
 		GitHubAPIBaseURL, owner, repo, url.PathEscape(path))
 
@@ -143,22 +139,23 @@ func (g *gitHubAPIDownloader) getContents(owner, repo, path string) (any, bool, 
 		return nil, false, errors.ParseGitHubAPIError(resp.StatusCode, bodyStr)
 	}
 
-	//debug: this code below was rejecting downloading files
-	var items []GitHubContentItem
-	var singleItem GitHubContentItem
-	var contentJSON any
-	var contentBytes bytes.Buffer
-
-	json.NewDecoder(resp.Body).Decode(&contentJSON)
-	json.NewEncoder(&contentBytes).Encode(contentJSON)
-	if reflect.TypeOf(contentJSON) == reflect.TypeFor[[]any]() {
-		json.Unmarshal(contentBytes.Bytes(), &items)
-		return items, false, nil
-	} else if reflect.TypeOf(contentJSON) == reflect.TypeFor[map[string]any]() {
-		json.Unmarshal(contentBytes.Bytes(), &singleItem)
-		return singleItem, true, nil
+	var raw json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, false, fmt.Errorf("failed to parse API response: %w", err)
 	}
 
+	if len(raw) > 0 && raw[0] == '{' {
+		var item GitHubContentItem
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return nil, false, fmt.Errorf("failed to parse API response: %w", err)
+		}
+		return []GitHubContentItem{item}, item.Type == "file", nil
+	}
+
+	var items []GitHubContentItem
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, false, fmt.Errorf("failed to parse API response: %w", err)
+	}
 	return items, false, nil
 }
 
