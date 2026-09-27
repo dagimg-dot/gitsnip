@@ -151,6 +151,14 @@ func TestSparseCheckoutUsesTheDefaultBranchAndSkipsOtherBlobs(t *testing.T) {
 	if !strings.Contains(string(out), "?"+fx.bigBlob) {
 		t.Error("the partial clone downloaded a blob outside the requested paths")
 	}
+
+	all, err := snap.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(fixtureFiles) {
+		t.Errorf("listed %d paths, want every file in the tree (%d)", len(all), len(fixtureFiles))
+	}
 }
 
 func TestSparseCheckoutMatchesFilesAndGlobs(t *testing.T) {

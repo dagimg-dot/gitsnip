@@ -13,6 +13,7 @@ import (
 	"github.com/dagimg-dot/gitsnip/internal/app/model"
 	"github.com/dagimg-dot/gitsnip/internal/apperr"
 	"github.com/dagimg-dot/gitsnip/internal/pathspec"
+	"github.com/dagimg-dot/gitsnip/internal/source"
 	"github.com/dagimg-dot/gitsnip/internal/util"
 )
 
@@ -48,7 +49,7 @@ func listFiles(root string) ([]string, error) {
 	return files, err
 }
 
-func selectFiles(patterns []pathspec.Pattern, files []string) (selection, error) {
+func selectFiles(patterns []pathspec.Pattern, files []string) (selection, *pathspec.Pattern) {
 	if len(patterns) == 0 {
 		patterns = []pathspec.Pattern{{}}
 	}
@@ -67,7 +68,7 @@ func selectFiles(patterns []pathspec.Pattern, files []string) (selection, error)
 			exact = exact || p.IsExactly(file)
 		}
 		if matched == 0 {
-			return selection{}, missing(p)
+			return selection{}, &p
 		}
 		anchors = append(anchors, p.Anchor(exact))
 		single = single && exact
@@ -81,16 +82,36 @@ func selectFiles(patterns []pathspec.Pattern, files []string) (selection, error)
 	return sel, nil
 }
 
-func missing(p pathspec.Pattern) error {
+func missing(ctx context.Context, p pathspec.Pattern, req model.Request, snap model.Snapshot) error {
+	where := location(req.Source, snap.Ref)
 	switch {
 	case p.IsAll():
-		return apperr.Wrap(apperr.ErrPathNotFound, nil, "The repository is empty", "")
+		return apperr.Wrap(apperr.ErrPathNotFound, nil, fmt.Sprintf("There's nothing to download in %s", where), "")
 	case p.IsGlob():
 		return apperr.Wrap(apperr.ErrPathNotFound, nil,
-			fmt.Sprintf("No files match %q", p), "check the pattern, and quote it so your shell doesn't expand it")
+			fmt.Sprintf("No files match %q in %s", p, where), "check the pattern, and quote it so your shell doesn't expand it")
+	}
+
+	hint := "check the path and the branch"
+	if snap.List != nil {
+		if all, err := snap.List(ctx); err == nil {
+			if guess := pathspec.Suggest(p.String(), all); guess != "" {
+				hint = fmt.Sprintf("did you mean %s?", guess)
+			}
+		}
+	}
+	return apperr.Wrap(apperr.ErrPathNotFound, nil, fmt.Sprintf("Path %q doesn't exist in %s", p, where), hint)
+}
+
+func location(src source.Source, ref string) string {
+	name := src.Display()
+	switch {
+	case name == "":
+		return "the repository"
+	case ref == "":
+		return name
 	default:
-		return apperr.Wrap(apperr.ErrPathNotFound, nil,
-			fmt.Sprintf("Path %q doesn't exist in the repository", p), "check the path and the branch")
+		return name + "@" + ref
 	}
 }
 

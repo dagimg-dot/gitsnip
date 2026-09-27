@@ -94,7 +94,16 @@ func (s *sparseCheckoutDownloader) Download(ctx context.Context, req model.Reque
 		}
 	}
 
-	return model.Snapshot{Dir: repoDir, Ref: ref, Commit: strings.TrimSpace(commit), Paths: paths}, nil
+	commit = strings.TrimSpace(commit)
+	list := func(ctx context.Context) ([]string, error) {
+		out, err := g.run(ctx, repoDir, "ls-tree", "-r", "-z", "--name-only", commit)
+		if err != nil {
+			return nil, err
+		}
+		return strings.Split(strings.TrimSuffix(out, "\x00"), "\x00"), nil
+	}
+
+	return model.Snapshot{Dir: repoDir, Ref: ref, Commit: commit, Paths: paths, List: list}, nil
 }
 
 func (g *gitSession) splitRefPath(ctx context.Context, refPath string) (string, string, error) {

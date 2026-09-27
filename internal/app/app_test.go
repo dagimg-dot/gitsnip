@@ -16,6 +16,7 @@ import (
 )
 
 type fakeDownloader struct {
+	listing  []string
 	paths    []pathspec.Pattern
 	files    map[string]string
 	links    map[string]string
@@ -48,7 +49,11 @@ func (f *fakeDownloader) Download(ctx context.Context, req model.Request, dir st
 			return model.Snapshot{}, err
 		}
 	}
-	return model.Snapshot{Dir: dir, Ref: "main", Commit: "abc123", Paths: f.paths}, nil
+	snap := model.Snapshot{Dir: dir, Ref: "main", Commit: "abc123", Paths: f.paths}
+	if f.listing != nil {
+		snap.List = func(context.Context) ([]string, error) { return f.listing, nil }
+	}
+	return snap, nil
 }
 
 type recorder struct {
@@ -174,7 +179,7 @@ func TestRunReportsMissingPaths(t *testing.T) {
 	inTempDir(t)
 	cases := map[string]string{
 		"nope":      `Path "nope" doesn't exist in the repository`,
-		"docs/*.md": `No files match "docs/*.md"`,
+		"docs/*.md": `No files match "docs/*.md" in the repository`,
 	}
 	for raw, want := range cases {
 		_, err := run(context.Background(), &fakeDownloader{files: repoFiles},
@@ -333,4 +338,23 @@ func TestRunRejectsAFileWhereTheFolderShouldGo(t *testing.T) {
 		t.Fatalf("got %v, want ErrDestinationExists", err)
 	}
 	assertFile(t, "lib", "not a folder")
+}
+
+func TestRunSuggestsTheClosestPath(t *testing.T) {
+	inTempDir(t)
+	var listing []string
+	for name := range repoFiles {
+		listing = append(listing, name)
+	}
+	dl := &fakeDownloader{files: repoFiles, listing: listing}
+	req := model.Request{Source: source.Source{Host: "github.com", Owner: "o", Repo: "r"}, Paths: patterns(t, "src/lb")}
+
+	_, err := run(context.Background(), dl, req, model.Discard{})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("got %v, want an app error", err)
+	}
+	if appErr.Error() != `Path "src/lb" doesn't exist in o/r@main` || appErr.Hint != "did you mean src/lib?" {
+		t.Errorf("message %q, hint %q", appErr.Error(), appErr.Hint)
+	}
 }

@@ -39,9 +39,9 @@ func run(ctx context.Context, dl downloader.Downloader, req model.Request, rep m
 		paths = req.Paths
 	}
 
-	sel, err := selectFiles(paths, files)
-	if err != nil {
-		return model.Result{}, err
+	sel, gap := selectFiles(paths, files)
+	if gap != nil {
+		return model.Result{}, missing(ctx, *gap, req, snap)
 	}
 
 	output := req.Output

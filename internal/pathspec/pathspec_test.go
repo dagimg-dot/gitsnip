@@ -108,3 +108,28 @@ func TestRule(t *testing.T) {
 		t.Errorf("Rule() = %q", got)
 	}
 }
+
+func TestSuggest(t *testing.T) {
+	files := []string{
+		"README.md",
+		"internal/app/app.go",
+		"internal/app/downloader/github_api.go",
+		"internal/cli/root.go",
+		"src/components/Button.tsx",
+		"docs/Guide.md",
+	}
+	cases := map[string]string{
+		"internal/ap":              "internal/app",
+		"internal/app/downloadr":   "internal/app/downloader",
+		"components":               "src/components",
+		"DOCS":                     "docs",
+		"readme.md":                "README.md",
+		"src/components/Buton.tsx": "src/components/Button.tsx",
+		"something/else/entirely":  "",
+	}
+	for missing, want := range cases {
+		if got := Suggest(missing, files); got != want {
+			t.Errorf("Suggest(%q) = %q, want %q", missing, got, want)
+		}
+	}
+}

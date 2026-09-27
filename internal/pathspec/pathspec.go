@@ -136,3 +136,64 @@ func CommonDir(dirs []string) string {
 	}
 	return strings.Join(common, "/")
 }
+
+func Suggest(missing string, files []string) string {
+	candidates := map[string]bool{}
+	for _, file := range files {
+		candidates[file] = true
+		for dir := path.Dir(file); dir != "." && !candidates[dir]; dir = path.Dir(dir) {
+			candidates[dir] = true
+		}
+	}
+
+	want := strings.ToLower(missing)
+	base := path.Base(want)
+	limit := max(2, len(want)/4)
+	best, bestScore := "", -1
+	for candidate := range candidates {
+		have := strings.ToLower(candidate)
+		score := -1
+		switch {
+		case have == want:
+			score = 0
+		case path.Base(have) == base:
+			score = 1 + strings.Count(candidate, "/")
+		case abs(len(have)-len(want)) <= limit:
+			if d := distance(want, have); d <= limit {
+				score = 100 + d
+			}
+		}
+		if score >= 0 && (bestScore < 0 || score < bestScore || score == bestScore && candidate < best) {
+			best, bestScore = candidate, score
+		}
+	}
+	return best
+}
+
+func distance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	curr := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		curr[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			curr[j] = min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(rb)]
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}

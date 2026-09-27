@@ -206,6 +206,9 @@ func TestGitHubAPIDownloadsFromTheDefaultBranch(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "README.md")); !os.IsNotExist(err) {
 		t.Error("downloaded a file outside the requested path")
 	}
+	if all, _ := snap.List(context.Background()); len(all) != 8 {
+		t.Errorf("listed %v, want every blob and submodule", all)
+	}
 }
 
 func TestGitHubAPIMatchesFilesAndGlobs(t *testing.T) {

@@ -95,7 +95,15 @@ func (g *gitHubAPIDownloader) Download(ctx context.Context, req model.Request, d
 		return model.Snapshot{}, err
 	}
 
-	return model.Snapshot{Dir: dir, Ref: ref, Commit: sha, Paths: paths}, nil
+	var all []string
+	for _, e := range t.Entries {
+		if e.Type == "blob" || e.Type == "commit" {
+			all = append(all, e.Path)
+		}
+	}
+	list := func(context.Context) ([]string, error) { return all, nil }
+
+	return model.Snapshot{Dir: dir, Ref: ref, Commit: sha, Paths: paths, List: list}, nil
 }
 
 func (c *githubClient) resolve(ctx context.Context, req model.Request) (string, string, []pathspec.Pattern, error) {

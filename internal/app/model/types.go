@@ -1,6 +1,8 @@
 package model
 
 import (
+	"context"
+
 	"github.com/dagimg-dot/gitsnip/internal/pathspec"
 	"github.com/dagimg-dot/gitsnip/internal/source"
 )
@@ -27,6 +29,7 @@ type Snapshot struct {
 	Ref    string
 	Commit string
 	Paths  []pathspec.Pattern
+	List   func(context.Context) ([]string, error)
 }
 
 type Result struct {
